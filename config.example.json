@@ -1,0 +1,6 @@
+{
+  "SUPABASE_URL": "https://SEU-PROJETO.supabase.co",
+  "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_cole-aqui",
+  "GOOGLE_WEB_CLIENT_ID": "123456789-xxxx.apps.googleusercontent.com",
+  "GOOGLE_IOS_CLIENT_ID": "123456789-yyyy.apps.googleusercontent.com"
+}
