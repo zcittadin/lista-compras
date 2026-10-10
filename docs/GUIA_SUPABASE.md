@@ -74,6 +74,8 @@ usa para validar), um **Android** e um **iOS**.
      keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android
      ```
      e copie a linha `SHA1`. (No Windows o arquivo fica em `%USERPROFILE%\.android\debug.keystore`.)
+     Se aparecer "o arquivo não existe", é porque nenhum app Android foi compilado
+     ainda nesse PC: rode `flutter build apk --debug` na pasta do projeto e tente de novo.
 
    **c) iOS** (só se for testar no iPhone)
    - ID do pacote: `dev.listacompras.listaCompras`
