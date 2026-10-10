@@ -63,6 +63,8 @@ usa para validar), um **Android** e um **iOS**.
    - Nome: `Supabase`
    - Em *URIs de redirecionamento autorizados*, cole a *Callback URL* que aparece
      no Supabase em **Authentication → Sign In / Providers → Google**.
+     Nessa tela do Supabase, os campos *Client IDs* e *Client Secret* ainda estão
+     em branco: é normal, eles são preenchidos no passo 4 com o que o Google gerar agora.
    - Anote o **ID do cliente** e a **Chave secreta do cliente**.
 
    **b) Android**
