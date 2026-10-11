@@ -49,3 +49,6 @@ app.*.map.json
 
 # Chaves locais do Supabase e Google
 config.json
+
+# Gerado pelo Gradle (updateDaemonJvm)
+/android/gradle/gradle-daemon-jvm.properties
