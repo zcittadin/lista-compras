@@ -22,10 +22,11 @@ aparecerem pela primeira vez, de forma breve.
 
 1. **[feito]** Fundação: projeto Flutter, esquema Supabase com RLS, login Google.
    Testado no celular Android do Zander em 2026-10-11.
-2. **[próxima]** Listas e itens online: criar/renomear/apagar listas por categoria;
+2. **[feito]** Listas e itens online: criar/renomear/apagar listas por categoria;
    adicionar, editar, marcar e apagar itens; atualização em tempo real via
-   Supabase Realtime entre membros.
-3. Compartilhamento: dono convida pelo e-mail da conta Google (função SQL
+   Supabase Realtime entre membros. Inclui autocompletar pelo catálogo
+   `products`. Testado no celular em 2026-10-11.
+3. **[próxima]** Compartilhamento: dono convida pelo e-mail da conta Google (função SQL
    `share_list` já existe), remove membros; membros veem listas compartilhadas e podem sair.
 4. Modo offline: banco SQLite local (drift) com fila de sincronização própria;
    itens criados offline sincronizam ao reconectar.
@@ -50,8 +51,15 @@ aparecerem pela primeira vez, de forma breve.
   Usa a *publishable key* do Supabase, não a anon key antiga.
 - **Plataforma:** só Android por enquanto (sem client ID iOS).
   Pacote Android: `dev.listacompras.lista_compras`.
-- **Estado:** ainda sem biblioteca de gerência de estado; a decidir na etapa 2
-  (manter simples, o Zander está aprendendo).
+- **Estado:** sem biblioteca de gerência de estado, de propósito (o Zander está
+  aprendendo). Serviços singleton em `lib/services/` (`ListsService`,
+  `ItemsService`, `ProductsService`) e telas com `StreamBuilder` sobre
+  `supabase.from(...).stream(...)`. O stream é criado uma vez no `State`.
+  O stream não filtra `deleted_at`: os serviços descartam essas linhas no cliente.
+- **Itens:** adicionar abre o diálogo "Novo item" (nome, quantidade, unidade,
+  observação); cancelar não cria o item. Sem quantidade, quantidade+unidade ficam
+  ocultas na lista. A unidade padrão de cada produto no catálogo é a última usada.
+  Catálogo `products` só é carregado ao abrir uma lista (sem Realtime, é pessoal).
 
 ## Ambiente do Zander
 
