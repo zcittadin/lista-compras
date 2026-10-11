@@ -5,7 +5,7 @@ entre várias pessoas, com sincronização em tempo real via Supabase.
 
 ## Estado atual
 
-- [x] Etapa 1: projeto Flutter, banco Supabase com regras de segurança, login com Google
+- [x] Etapa 1: projeto Flutter, banco Supabase com regras de segurança, login com Google (testado no Android)
 - [ ] Etapa 2: listas e itens online, em tempo real
 - [ ] Etapa 3: compartilhamento pelo e-mail da conta Google
 - [ ] Etapa 4: modo offline com sincronização ao reconectar
