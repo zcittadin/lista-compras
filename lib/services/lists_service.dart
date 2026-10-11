@@ -31,6 +31,22 @@ class ListsService {
         );
   }
 
+  /// Um "carimbo" das participações visíveis para o usuário (que muda quando
+  /// ele é convidado ou removido de uma lista).
+  ///
+  /// Convidar alguém só insere uma linha em `list_members`; a linha da lista
+  /// em `lists` não muda, então o stream de `watchLists()` não avisaria.
+  /// Quem usa `watchLists()` deve reabri-lo quando este carimbo mudar.
+  Stream<String> watchMembershipStamp() {
+    return _supabase
+        .from('list_members')
+        .stream(primaryKey: ['list_id', 'user_id'])
+        .map((rows) {
+          final keys = [for (final r in rows) '${r['list_id']}:${r['user_id']}']..sort();
+          return keys.join(',');
+        });
+  }
+
   /// O id nasce no celular (UUID), como pede o plano do modo offline.
   /// O `owner_id` vem do `auth.uid()` por padrão no banco.
   Future<void> createList({

@@ -26,9 +26,10 @@ aparecerem pela primeira vez, de forma breve.
    adicionar, editar, marcar e apagar itens; atualização em tempo real via
    Supabase Realtime entre membros. Inclui autocompletar pelo catálogo
    `products`. Testado no celular em 2026-10-11.
-3. **[próxima]** Compartilhamento: dono convida pelo e-mail da conta Google (função SQL
-   `share_list` já existe), remove membros; membros veem listas compartilhadas e podem sair.
-4. Modo offline: banco SQLite local (drift) com fila de sincronização própria;
+3. **[feito]** Compartilhamento: dono convida pelo e-mail da conta Google (função SQL
+   `share_list`), remove membros; membros veem listas compartilhadas e podem sair.
+   Testado com dois celulares em tempo real em 2026-10-11.
+4. **[próxima]** Modo offline: banco SQLite local (drift) com fila de sincronização própria;
    itens criados offline sincronizam ao reconectar.
 
 ## Decisões técnicas
@@ -53,13 +54,21 @@ aparecerem pela primeira vez, de forma breve.
   Pacote Android: `dev.listacompras.lista_compras`.
 - **Estado:** sem biblioteca de gerência de estado, de propósito (o Zander está
   aprendendo). Serviços singleton em `lib/services/` (`ListsService`,
-  `ItemsService`, `ProductsService`) e telas com `StreamBuilder` sobre
+  `ItemsService`, `ProductsService`, `MembersService`) e telas com `StreamBuilder` sobre
   `supabase.from(...).stream(...)`. O stream é criado uma vez no `State`.
   O stream não filtra `deleted_at`: os serviços descartam essas linhas no cliente.
 - **Itens:** adicionar abre o diálogo "Novo item" (nome, quantidade, unidade,
   observação); cancelar não cria o item. Sem quantidade, quantidade+unidade ficam
   ocultas na lista. A unidade padrão de cada produto no catálogo é a última usada.
   Catálogo `products` só é carregado ao abrir uma lista (sem Realtime, é pessoal).
+- **Compartilhamento:** tela de participantes (`members_screen.dart`), acessível
+  pelo ícone de grupo na lista e pelo menu de três pontinhos na tela inicial
+  (dono: "Compartilhar"; demais: "Participantes", onde podem sair). Convite via
+  RPC `share_list`; remover e sair são o mesmo DELETE em `list_members`.
+  Convidar só insere em `list_members` e não altera `lists`, então a tela inicial
+  também observa `list_members` (`watchMembershipStamp`) e reabre o stream das
+  listas quando as participações mudam. Limitação: quem é removido com a lista
+  aberta só vê isso ao voltar para a tela inicial.
 
 ## Ambiente do Zander
 

@@ -5,6 +5,7 @@ import '../models/product.dart';
 import '../models/shopping_list.dart';
 import '../services/items_service.dart';
 import '../services/products_service.dart';
+import 'members_screen.dart';
 
 /// Itens de uma lista, atualizados em tempo real para todos os membros.
 class ListScreen extends StatefulWidget {
@@ -100,7 +101,19 @@ class _ListScreenState extends State<ListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.list.name)),
+      appBar: AppBar(
+        title: Text(widget.list.name),
+        actions: [
+          IconButton(
+            tooltip: 'Participantes',
+            icon: const Icon(Icons.group),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => MembersScreen(list: widget.list)),
+            ),
+          ),
+        ],
+      ),
       body: Column(
         children: [
           Expanded(

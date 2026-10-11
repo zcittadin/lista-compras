@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/shopping_list.dart';
 import '../services/auth_service.dart';
 import '../services/lists_service.dart';
 import 'list_screen.dart';
+import 'members_screen.dart';
 
 /// Tela inicial: as listas do usuário, atualizadas em tempo real.
 class HomeScreen extends StatefulWidget {
@@ -14,8 +17,30 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // Criado uma vez só: recriar o stream a cada build reabriria a conexão Realtime.
-  late final _lists = ListsService.instance.watchLists();
+  // Só é recriado quando as participações mudam (nunca a cada build, para não
+  // reabrir a conexão Realtime à toa).
+  Stream<List<ShoppingList>> _lists = ListsService.instance.watchLists();
+  StreamSubscription<String>? _memberships;
+  String? _stamp;
+
+  @override
+  void initState() {
+    super.initState();
+    // Convidado ou removido de uma lista: reabre o stream para refletir isso.
+    _memberships = ListsService.instance.watchMembershipStamp().listen((stamp) {
+      final changed = _stamp != null && stamp != _stamp;
+      _stamp = stamp;
+      if (changed && mounted) {
+        setState(() => _lists = ListsService.instance.watchLists());
+      }
+    }, onError: (_) {});
+  }
+
+  @override
+  void dispose() {
+    _memberships?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -56,18 +81,33 @@ class _HomeScreenState extends State<HomeScreen> {
                 leading: Icon(list.category.icon),
                 title: Text(list.name),
                 subtitle: Text(list.category.label),
-                // Só o dono altera ou apaga (regra da RLS), então só ele vê o menu.
-                trailing: isOwner
-                    ? PopupMenuButton<String>(
-                        onSelected: (action) => action == 'edit'
-                            ? _showListDialog(context, list: list)
-                            : _confirmDelete(context, list),
-                        itemBuilder: (_) => const [
-                          PopupMenuItem(value: 'edit', child: Text('Editar')),
-                          PopupMenuItem(value: 'delete', child: Text('Apagar')),
-                        ],
-                      )
-                    : null,
+                // Só o dono altera, apaga ou compartilha (regra da RLS); os demais
+                // têm só "Participantes", onde também podem sair da lista.
+                trailing: PopupMenuButton<String>(
+                  onSelected: (action) {
+                    switch (action) {
+                      case 'share':
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => MembersScreen(list: list)),
+                        );
+                      case 'edit':
+                        _showListDialog(context, list: list);
+                      case 'delete':
+                        _confirmDelete(context, list);
+                    }
+                  },
+                  itemBuilder: (_) => [
+                    PopupMenuItem(
+                      value: 'share',
+                      child: Text(isOwner ? 'Compartilhar' : 'Participantes'),
+                    ),
+                    if (isOwner) ...const [
+                      PopupMenuItem(value: 'edit', child: Text('Editar')),
+                      PopupMenuItem(value: 'delete', child: Text('Apagar')),
+                    ],
+                  ],
+                ),
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => ListScreen(list: list)),
