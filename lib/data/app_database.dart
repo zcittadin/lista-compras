@@ -198,6 +198,31 @@ class AppDatabase extends _$AppDatabase {
     return (select(outboxEntries)..where((e) => e.failed.equals(true))).get();
   }
 
+  Stream<List<OutboxEntry>> watchFailedEntries() {
+    return (select(outboxEntries)
+          ..where((e) => e.failed.equals(true))
+          ..orderBy([(e) => OrderingTerm.asc(e.id)]))
+        .watch();
+  }
+
+  /// Dá outra chance a uma entrada que falhou (volta para a fila de envio).
+  Future<void> resetFailed(int id) {
+    return (update(outboxEntries)..where((e) => e.id.equals(id))).write(
+      const OutboxEntriesCompanion(
+        failed: Value(false),
+        attempts: Value(0),
+        lastError: Value(null),
+      ),
+    );
+  }
+
+  /// Apaga as entradas (em qualquer estado) das linhas [rowIds] de [table].
+  Future<void> discardEntriesForRows(String table, Iterable<String> rowIds) {
+    return (delete(outboxEntries)
+          ..where((e) => e.targetTable.equals(table) & e.rowId.isIn(rowIds.toList())))
+        .go();
+  }
+
   /// Quantas mudanças aguardam envio (para o indicador da tela).
   Stream<int> watchPendingCount() {
     final count = outboxEntries.id.count();

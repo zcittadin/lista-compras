@@ -5,6 +5,7 @@ import '../models/shopping_list.dart';
 import '../services/auth_service.dart';
 import '../services/lists_service.dart';
 import '../services/sync_service.dart';
+import '../widgets/sync_status_banner.dart';
 import 'list_screen.dart';
 import 'members_screen.dart';
 
@@ -33,10 +34,11 @@ class _HomeScreenState extends State<HomeScreen> {
     // Com internet, o que estiver pendente sobe agora e o aviso nem aparece.
     // Sem internet, não vale esperar muito.
     await SyncService.instance.push().timeout(
-          const Duration(seconds: 5),
-          onTimeout: () {},
-        );
-    final unsent = (await db.pendingEntries()).length + (await db.failedEntries()).length;
+      const Duration(seconds: 5),
+      onTimeout: () {},
+    );
+    final unsent =
+        (await db.pendingEntries()).length + (await db.failedEntries()).length;
     if (unsent > 0 && mounted) {
       final ok = await showDialog<bool>(
         context: context,
@@ -47,8 +49,14 @@ class _HomeScreenState extends State<HomeScreen> {
             'ao servidor e ${unsent == 1 ? 'será perdida' : 'serão perdidas'} ao sair.',
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sair')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Sair'),
+            ),
           ],
         ),
       );
@@ -72,65 +80,83 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: StreamBuilder<List<ShoppingList>>(
-        stream: _lists,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(child: Text('Erro ao carregar: ${snapshot.error}'));
-          }
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final lists = snapshot.data!;
-          if (lists.isEmpty) {
-            return const Center(
-              child: Text('Nenhuma lista ainda. Toque em + para criar.'),
-            );
-          }
-          return ListView.builder(
-            itemCount: lists.length,
-            itemBuilder: (context, i) {
-              final list = lists[i];
-              final isOwner = list.ownerId == userId;
-              return ListTile(
-                leading: Icon(list.category.icon),
-                title: Text(list.name),
-                subtitle: Text(list.category.label),
-                // Só o dono altera, apaga ou compartilha (regra da RLS); os demais
-                // têm só "Participantes", onde também podem sair da lista.
-                trailing: PopupMenuButton<String>(
-                  onSelected: (action) {
-                    switch (action) {
-                      case 'share':
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => MembersScreen(list: list)),
-                        );
-                      case 'edit':
-                        _showListDialog(context, list: list);
-                      case 'delete':
-                        _confirmDelete(context, list);
-                    }
+      body: Column(
+        children: [
+          const SyncStatusBanner(),
+          Expanded(
+            child: StreamBuilder<List<ShoppingList>>(
+              stream: _lists,
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text('Erro ao carregar: ${snapshot.error}'),
+                  );
+                }
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final lists = snapshot.data!;
+                if (lists.isEmpty) {
+                  return const Center(
+                    child: Text('Nenhuma lista ainda. Toque em + para criar.'),
+                  );
+                }
+                return ListView.builder(
+                  itemCount: lists.length,
+                  itemBuilder: (context, i) {
+                    final list = lists[i];
+                    final isOwner = list.ownerId == userId;
+                    return ListTile(
+                      leading: Icon(list.category.icon),
+                      title: Text(list.name),
+                      subtitle: Text(list.category.label),
+                      // Só o dono altera, apaga ou compartilha (regra da RLS); os demais
+                      // têm só "Participantes", onde também podem sair da lista.
+                      trailing: PopupMenuButton<String>(
+                        onSelected: (action) {
+                          switch (action) {
+                            case 'share':
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => MembersScreen(list: list),
+                                ),
+                              );
+                            case 'edit':
+                              _showListDialog(context, list: list);
+                            case 'delete':
+                              _confirmDelete(context, list);
+                          }
+                        },
+                        itemBuilder: (_) => [
+                          PopupMenuItem(
+                            value: 'share',
+                            child: Text(
+                              isOwner ? 'Compartilhar' : 'Participantes',
+                            ),
+                          ),
+                          if (isOwner) ...const [
+                            PopupMenuItem(value: 'edit', child: Text('Editar')),
+                            PopupMenuItem(
+                              value: 'delete',
+                              child: Text('Apagar'),
+                            ),
+                          ],
+                        ],
+                      ),
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ListScreen(list: list),
+                        ),
+                      ),
+                    );
                   },
-                  itemBuilder: (_) => [
-                    PopupMenuItem(
-                      value: 'share',
-                      child: Text(isOwner ? 'Compartilhar' : 'Participantes'),
-                    ),
-                    if (isOwner) ...const [
-                      PopupMenuItem(value: 'edit', child: Text('Editar')),
-                      PopupMenuItem(value: 'delete', child: Text('Apagar')),
-                    ],
-                  ],
-                ),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => ListScreen(list: list)),
-                ),
-              );
-            },
-          );
-        },
+                );
+              },
+            ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
         tooltip: 'Nova lista',
@@ -171,7 +197,9 @@ Future<void> _confirmDelete(BuildContext context, ShoppingList list) async {
     context: context,
     builder: (ctx) => AlertDialog(
       title: const Text('Apagar lista?'),
-      content: Text('"${list.name}" deixará de aparecer para todos os membros.'),
+      content: Text(
+        '"${list.name}" deixará de aparecer para todos os membros.',
+      ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx, false),
@@ -194,9 +222,8 @@ Future<void> _confirmDelete(BuildContext context, ShoppingList list) async {
 }
 
 void _showError(BuildContext context, Object error) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text('Erro: $error')),
-  );
+  ScaffoldMessenger.of(context)
+      .showSnackBar(SnackBar(content: Text('Erro: $error')));
 }
 
 class _ListDialog extends StatefulWidget {

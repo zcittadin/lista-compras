@@ -8,6 +8,7 @@ import '../models/shopping_list.dart';
 import '../services/items_service.dart';
 import '../services/lists_service.dart';
 import '../services/products_service.dart';
+import '../widgets/sync_status_banner.dart';
 import 'members_screen.dart';
 
 /// Itens de uma lista, atualizados em tempo real para todos os membros.
@@ -140,6 +141,7 @@ class _ListScreenState extends State<ListScreen> {
       ),
       body: Column(
         children: [
+          const SyncStatusBanner(),
           Expanded(
             child: StreamBuilder<List<Item>>(
               stream: _items,

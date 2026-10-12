@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -43,6 +44,12 @@ class SyncService with WidgetsBindingObserver {
   final List<StreamSubscription<Object?>> _subscriptions = [];
   Timer? _pushTimer;
   Timer? _retryTimer;
+  final ValueNotifier<bool> _online = ValueNotifier(true);
+
+  /// `false` quando o aparelho está sem rede ou o servidor não responde.
+  /// Alimenta a faixa "Sem conexão" das telas.
+  ValueListenable<bool> get online => _online;
+
   RealtimeChannel? _channel;
   bool _started = false;
   bool _wasSubscribed = false;
@@ -58,6 +65,9 @@ class SyncService with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
 
     syncNow();
+    Connectivity().checkConnectivity().then((results) {
+      if (results.every((r) => r == ConnectivityResult.none)) _online.value = false;
+    }, onError: _logError);
 
     // Cada alteração do usuário agenda um envio.
     _subscriptions.add(_db.onEnqueued.listen((_) => _schedulePush()));
@@ -65,12 +75,21 @@ class SyncService with WidgetsBindingObserver {
     // Conexão voltou (ex.: saiu do modo avião): envia e busca o que perdeu.
     _subscriptions.add(
       Connectivity().onConnectivityChanged.listen((results) {
-        if (results.any((r) => r != ConnectivityResult.none)) syncNow();
+        if (results.any((r) => r != ConnectivityResult.none)) {
+          syncNow();
+        } else {
+          _online.value = false;
+        }
       }, onError: _logError),
     );
 
     // Rede instável não gera evento de conexão: tenta de novo de tempos em tempos.
-    _retryTimer = Timer.periodic(_retryEvery, (_) => push());
+    _retryTimer = Timer.periodic(_retryEvery, (_) {
+      push();
+      // Se achamos que estamos sem conexão e não há nada a enviar, uma busca
+      // serve de teste para descobrir que ela voltou.
+      if (!_online.value) pullAll();
+    });
 
     // Realtime como aviso: qualquer mudança nas tabelas dispara uma busca
     // (REST) daquela tabela. Ser convidado ou removido só mexe em
@@ -159,9 +178,11 @@ class SyncService with WidgetsBindingObserver {
     for (final entry in await _db.pendingEntries()) {
       try {
         await _send(entry);
+        _online.value = true;
         await _db.markSent(entry);
       } on PostgrestException catch (e) {
-        // O servidor respondeu com erro.
+        // O servidor respondeu com erro (então há conexão).
+        _online.value = true;
         if (await _handleKnownRejection(entry, e)) continue;
         final permanent =
             _isPermanent(e) || entry.attempts + 1 >= maxServerErrors;
@@ -169,7 +190,7 @@ class SyncService with WidgetsBindingObserver {
           '${entry.targetTable}/${entry.op} ${entry.rowId} rejeitado: '
           '${e.message} (código ${e.code})${permanent ? ' [definitivo]' : ''}',
         );
-        await _db.markFailedAttempt(entry, e.message, permanent: permanent);
+        await _db.markFailedAttempt(entry, '${e.message} (código ${e.code})', permanent: permanent);
         // Rejeição definitiva não trava as demais; um erro passageiro, sim
         // (preserva a ordem: a lista tem de subir antes dos itens dela).
         if (!permanent) return;
@@ -180,6 +201,7 @@ class SyncService with WidgetsBindingObserver {
         // Sem comunicação (modo avião, DNS, timeout): não é culpa da entrada,
         // então não conta tentativa. Para por aqui e tenta de novo depois.
         _logError(e);
+        _online.value = false;
         return;
       }
     }
@@ -226,6 +248,83 @@ class SyncService with WidgetsBindingObserver {
       return true;
     }
     return false;
+  }
+
+  // -------------------------------------------------------------------
+  // Falhas: o usuário decide o que fazer com o que o servidor recusou
+  // -------------------------------------------------------------------
+
+  /// Tenta enviar de novo uma entrada que falhou.
+  Future<void> retryFailed(OutboxEntry entry) async {
+    await _db.resetFailed(entry.id);
+    await push();
+  }
+
+  /// Desiste de uma entrada que falhou e desfaz a mudança neste aparelho:
+  /// - criação: a linha (e, no caso de uma lista, os itens dela) é apagada;
+  /// - alteração: volta a versão do servidor (ou a linha some, se o usuário
+  ///   não a enxerga mais).
+  ///
+  /// Para voltar a versão do servidor é preciso ter conexão; sem ela lança
+  /// uma exceção e nada é alterado.
+  Future<void> discardFailed(OutboxEntry entry) async {
+    final table = entry.targetTable;
+
+    if (entry.op == 'insert') {
+      await _db.transaction(() async {
+        if (table == 'lists') {
+          final children = await (_db.select(_db.localItems)
+                ..where((i) => i.listId.equals(entry.rowId)))
+              .map((i) => i.id)
+              .get();
+          await _db.discardEntriesForRows('items', children);
+          await _deleteLocal('items', children.toSet());
+        }
+        await _deleteLocal(table, {entry.rowId});
+        await _db.discardEntry(entry.id);
+      });
+      return;
+    }
+
+    final rows = await _remote.selectByIds(table, [entry.rowId]);
+    await _db.transaction(() async {
+      await _db.discardEntry(entry.id);
+      if (rows.isEmpty) await _deleteLocal(table, {entry.rowId});
+    });
+    if (rows.isNotEmpty) await applyRemoteRows(table, rows);
+  }
+
+  /// Texto para a tela de problemas, ex.: `Criação do item "Arroz"`.
+  Future<String> describe(OutboxEntry entry) async {
+    final payload = jsonDecode(entry.payload) as Map<String, dynamic>;
+    final String? localName;
+    switch (entry.targetTable) {
+      case 'lists':
+        localName = (await (_db.select(_db.localLists)..where((t) => t.id.equals(entry.rowId)))
+                .getSingleOrNull())
+            ?.name;
+      case 'items':
+        localName = (await (_db.select(_db.localItems)..where((t) => t.id.equals(entry.rowId)))
+                .getSingleOrNull())
+            ?.name;
+      default:
+        localName = (await (_db.select(_db.localProducts)..where((t) => t.id.equals(entry.rowId)))
+                .getSingleOrNull())
+            ?.name;
+    }
+    final name = localName ?? payload['name'] as String?;
+
+    final what = switch (entry.targetTable) {
+      'lists' => 'da lista',
+      'items' => 'do item',
+      _ => 'do produto',
+    };
+    final action = entry.op == 'insert'
+        ? 'Criação'
+        : payload.containsKey('deleted_at')
+            ? 'Exclusão'
+            : 'Alteração';
+    return name == null ? '$action $what' : '$action $what "$name"';
   }
 
   // -------------------------------------------------------------------
@@ -325,6 +424,8 @@ class SyncService with WidgetsBindingObserver {
 
     final rows = byId.values.toList();
     await applyRemoteRows(table, rows);
+
+    _online.value = true;
 
     // O marco só avança depois de aplicar com sucesso.
     final newest = rows
@@ -437,6 +538,8 @@ class SyncService with WidgetsBindingObserver {
       await action();
     } catch (e) {
       _logError(e);
+      // Sem resposta do servidor (e não um erro dele): estamos sem conexão.
+      if (e is! PostgrestException) _online.value = false;
     }
   }
 

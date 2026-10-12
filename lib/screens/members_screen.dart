@@ -17,7 +17,7 @@ class MembersScreen extends StatefulWidget {
 }
 
 class _MembersScreenState extends State<MembersScreen> {
-  late final _members = MembersService.instance.watchMembers(widget.list.id);
+  late Stream<List<Member>> _members = MembersService.instance.watchMembers(widget.list.id);
   final _email = TextEditingController();
   bool _inviting = false;
 
@@ -34,7 +34,12 @@ class _MembersScreenState extends State<MembersScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  String _errorText(Object e) => e is PostgrestException ? e.message : '$e';
+  static const _offlineText =
+      'Sem conexão. Ver, convidar e remover participantes exige internet.';
+
+  /// Erro do servidor: mostra a mensagem dele (escrita no SQL). Qualquer outro
+  /// erro significa que não houve comunicação.
+  String _errorText(Object e) => e is PostgrestException ? e.message : _offlineText;
 
   Future<void> _invite() async {
     final email = _email.text.trim();
@@ -109,7 +114,25 @@ class _MembersScreenState extends State<MembersScreen> {
               stream: _members,
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
-                  return Center(child: Text('Erro ao carregar: ${snapshot.error}'));
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(_errorText(snapshot.error!), textAlign: TextAlign.center),
+                          const SizedBox(height: 16),
+                          FilledButton.tonal(
+                            // A conexão do stream é encerrada quando falha: abre outra.
+                            onPressed: () => setState(() {
+                              _members = MembersService.instance.watchMembers(widget.list.id);
+                            }),
+                            child: const Text('Tentar de novo'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
                 }
                 if (!snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
