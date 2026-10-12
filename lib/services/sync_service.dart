@@ -8,6 +8,7 @@ import 'package:flutter/widgets.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../data/app_database.dart';
+import 'auth_service.dart';
 import 'remote_gateway.dart';
 
 /// Sincronização entre o SQLite local e o Supabase.
@@ -23,10 +24,16 @@ import 'remote_gateway.dart';
 /// O envio é tentado: logo depois de cada alteração, ao abrir o app, ao voltar
 /// ao primeiro plano, quando a conexão volta e a cada 30 segundos.
 class SyncService with WidgetsBindingObserver {
-  SyncService(this._db, {RemoteGateway? remote})
-      : _remote = remote ?? SupabaseGateway();
+  SyncService(
+    this._db, {
+    RemoteGateway? remote,
+    this._currentUserId,
+  }) : _remote = remote ?? SupabaseGateway();
 
-  static final instance = SyncService(AppDatabase.instance);
+  static final instance = SyncService(
+    AppDatabase.instance,
+    currentUserId: () => AuthService.instance.currentUser?.id,
+  );
 
   /// Depois de tantas respostas de erro "talvez passageiras" do servidor,
   /// a entrada é dada como falha permanente (para não tentar para sempre).
@@ -38,6 +45,7 @@ class SyncService with WidgetsBindingObserver {
 
   final AppDatabase _db;
   final RemoteGateway _remote;
+  final String? Function()? _currentUserId;
 
   SupabaseClient get _supabase => Supabase.instance.client;
 
@@ -64,7 +72,8 @@ class SyncService with WidgetsBindingObserver {
     _started = true;
     WidgetsBinding.instance.addObserver(this);
 
-    syncNow();
+    // Antes de sincronizar, garante que o banco local é deste usuário.
+    claimDatabase(_currentUserId?.call()).then((_) => syncNow(), onError: _logError);
     Connectivity().checkConnectivity().then((results) {
       if (results.every((r) => r == ConnectivityResult.none)) _online.value = false;
     }, onError: _logError);
@@ -113,6 +122,24 @@ class SyncService with WidgetsBindingObserver {
         _logError(error);
       }
     });
+  }
+
+  static const _ownerKey = 'db_owner';
+
+  /// Garante que o banco local pertence a [userId]. Se pertencia a outra
+  /// conta (a sessão caiu sem passar por "Sair", por exemplo), apaga tudo
+  /// antes que os dados de uma pessoa apareçam para outra.
+  ///
+  /// Um banco sem dono registrado (versões anteriores do app) é assumido
+  /// como sendo de [userId].
+  Future<void> claimDatabase(String? userId) async {
+    if (userId == null) return;
+    final owner = await _db.getCursor(_ownerKey);
+    if (owner != null && owner != userId) {
+      _logError('banco local era de outra conta: limpando');
+      await _db.clearAll();
+    }
+    if (owner != userId) await _db.setCursor(_ownerKey, userId);
   }
 
   /// Para de sincronizar (ao sair da conta).

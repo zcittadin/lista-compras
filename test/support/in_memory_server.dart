@@ -1,0 +1,146 @@
+import 'dart:io';
+
+import 'package:lista_compras/services/remote_gateway.dart';
+
+/// Um "Supabase" em memória, com o comportamento que a sincronização usa:
+/// upsert por id, update por campos, `updated_at` que só cresce (como o
+/// trigger do servidor) e visibilidade por usuário (como a RLS).
+///
+/// Vários aparelhos de teste compartilham o mesmo [InMemoryServer], cada um
+/// por meio do seu [ServerGateway].
+class InMemoryServer {
+  final tables = <String, Map<String, Map<String, dynamic>>>{
+    'lists': {},
+    'items': {},
+    'products': {},
+  };
+
+  var _tick = 0;
+
+  /// Relógio do servidor: cada gravação recebe um instante maior que o anterior.
+  String now() => DateTime.utc(2026, 10, 12, 10).add(Duration(seconds: ++_tick)).toIso8601String();
+
+  /// Linhas de [table] que [user] pode ver. `lists`: dono ou membro; `items`:
+  /// quem vê a lista; `products`: só o dono. [members] diz quem participa de cada lista.
+  final members = <String, Set<String>>{}; // listId -> userIds
+
+  bool canSee(String user, String table, Map<String, dynamic> row) {
+    switch (table) {
+      case 'lists':
+        return row['owner_id'] == user || (members[row['id']]?.contains(user) ?? false);
+      case 'items':
+        final list = tables['lists']![row['list_id']];
+        return list != null && canSee(user, 'lists', list);
+      default:
+        return row['owner_id'] == user;
+    }
+  }
+
+  void share(String listId, String user) => members.putIfAbsent(listId, () => {}).add(user);
+
+  void unshare(String listId, String user) => members[listId]?.remove(user);
+
+  Map<String, dynamic> _defaults(String table, String user) {
+    switch (table) {
+      case 'lists':
+        return {'owner_id': user, 'category': 'mercado', 'deleted_at': null};
+      case 'items':
+        return {
+          'quantity': null, 'unit': null, 'note': null, 'checked': false,
+          'created_by': user, 'deleted_at': null,
+        };
+      default:
+        return {'owner_id': user, 'default_unit': null, 'category': null, 'deleted_at': null};
+    }
+  }
+
+  void upsert(String user, String table, Map<String, dynamic> row) {
+    final id = row['id'] as String;
+    final existing = tables[table]![id];
+    if (existing == null) {
+      tables[table]![id] = {
+        ..._defaults(table, user),
+        'created_at': now(),
+        ...row,
+        'updated_at': now(),
+      };
+    } else {
+      tables[table]![id] = {...existing, ...row, 'updated_at': now()};
+    }
+  }
+
+  bool update(String user, String table, String id, Map<String, dynamic> fields) {
+    final row = tables[table]![id];
+    if (row == null || !canSee(user, table, row)) return false;
+    tables[table]![id] = {...row, ...fields, 'updated_at': now()};
+    return true;
+  }
+}
+
+class ServerGateway implements RemoteGateway {
+  ServerGateway(this.server, this.user);
+
+  final InMemoryServer server;
+  final String user;
+
+  /// Quando `false`, toda chamada falha como se não houvesse rede.
+  bool online = true;
+
+  /// Se definido, é chamado DEPOIS de o servidor aplicar um envio e ANTES de a
+  /// resposta voltar: lançar aqui simula a conexão caindo no pior momento.
+  void Function()? afterApply;
+
+  void _requireNetwork() {
+    if (!online) throw const SocketException('sem rede');
+  }
+
+  @override
+  Future<void> upsert(String table, Map<String, dynamic> row) async {
+    _requireNetwork();
+    server.upsert(user, table, row);
+    afterApply?.call();
+  }
+
+  @override
+  Future<bool> update(String table, String id, Map<String, dynamic> fields) async {
+    _requireNetwork();
+    final changed = server.update(user, table, id, fields);
+    afterApply?.call();
+    return changed;
+  }
+
+  List<Map<String, dynamic>> _visible(String table) => [
+        for (final r in server.tables[table]!.values)
+          if (server.canSee(user, table, r)) r,
+      ];
+
+  @override
+  Future<List<Map<String, dynamic>>> selectAll(String table) async {
+    _requireNetwork();
+    return _visible(table);
+  }
+
+  @override
+  Future<List<String>> selectIds(String table) async {
+    _requireNetwork();
+    return [for (final r in _visible(table)) r['id'] as String];
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> selectUpdatedSince(String table, DateTime since) async {
+    _requireNetwork();
+    return [
+      for (final r in _visible(table))
+        if (!DateTime.parse(r['updated_at'] as String).isBefore(since)) r,
+    ];
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> selectByIds(String table, List<String> ids) async {
+    _requireNetwork();
+    return [
+      for (final r in _visible(table))
+        if (ids.contains(r['id'])) r,
+    ];
+  }
+}
