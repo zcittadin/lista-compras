@@ -11,6 +11,11 @@ abstract class RemoteGateway {
   /// Assim reenviar uma criação cujo resultado ficou incerto não duplica.
   Future<void> upsert(String table, Map<String, dynamic> row);
 
+  /// Como [upsert], para várias linhas numa só requisição. É atômico: se o
+  /// servidor recusar UMA linha, nenhuma é gravada. Quem chama, nesse caso,
+  /// envia uma a uma para descobrir qual foi recusada.
+  Future<void> upsertMany(String table, List<Map<String, dynamic>> rows);
+
   /// Atualiza só os campos de [fields] da linha [id]. Devolve `false` se nenhuma
   /// linha foi alterada (não existe ou a RLS não deixa o usuário vê-la).
   Future<bool> update(String table, String id, Map<String, dynamic> fields);
@@ -42,6 +47,13 @@ class SupabaseGateway implements RemoteGateway {
   @override
   Future<void> upsert(String table, Map<String, dynamic> row) async {
     await _client.from(table).upsert(row, onConflict: 'id');
+  }
+
+  @override
+  Future<void> upsertMany(String table, List<Map<String, dynamic>> rows) async {
+    // `defaultToNull: false`: uma coluna que falta numa linha (mas existe em
+    // outras) usa o padrão do banco, em vez de virar NULL.
+    await _client.from(table).upsert(rows, onConflict: 'id', defaultToNull: false);
   }
 
   @override

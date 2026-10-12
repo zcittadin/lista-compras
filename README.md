@@ -44,7 +44,7 @@ lib/
   utils/                     texto sem acentos para ordenar e buscar
 supabase/migrations/         SQL do banco (tabelas, regras RLS, funções)
 test/                        testes (support/ tem o servidor falso usado nos testes)
-docs/                        guias
+docs/                        guias, roteiro de testes e catalogo_inicial.csv (importável)
 ```
 
 O arquivo `lib/data/app_database.g.dart` é gerado e fica no Git. Ao mudar as

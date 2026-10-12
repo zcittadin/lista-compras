@@ -29,6 +29,32 @@ void main() {
       expect(MeasureUnit.parse('lata'), isNull);
     });
 
+    test('reconhece nomes por extenso e variações comuns', () {
+      expect(MeasureUnit.parse('quilos'), MeasureUnit.kg);
+      expect(MeasureUnit.parse('Quilograma'), MeasureUnit.kg);
+      expect(MeasureUnit.parse('gramas'), MeasureUnit.g);
+      expect(MeasureUnit.parse('LT'), MeasureUnit.l);
+      expect(MeasureUnit.parse('litros'), MeasureUnit.l);
+      expect(MeasureUnit.parse('Und.'), MeasureUnit.un);
+      expect(MeasureUnit.parse('unidades'), MeasureUnit.un);
+      expect(MeasureUnit.parse('dúzia'), MeasureUnit.dz);
+      expect(MeasureUnit.parse('duzia'), MeasureUnit.dz);
+      expect(MeasureUnit.parse('Pacote'), MeasureUnit.pct);
+      expect(MeasureUnit.parse('caixa'), MeasureUnit.cx);
+      expect(MeasureUnit.parse('mt'), MeasureUnit.m);
+      expect(MeasureUnit.parse('metros'), MeasureUnit.m);
+    });
+
+    test('todo apelido aponta para uma única unidade', () {
+      // Se dois apelidos iguais existissem em unidades diferentes, o último
+      // venceria em silêncio.
+      final all = <String>[
+        for (final u in MeasureUnit.values) u.symbol.toLowerCase(),
+        for (final aliases in MeasureUnit.aliasesForTest.values) ...aliases,
+      ];
+      expect(all.toSet().length, all.length);
+    });
+
     test('todo símbolo é único mesmo sem diferenciar maiúsculas', () {
       final keys = MeasureUnit.values.map((u) => u.symbol.toLowerCase()).toSet();
       expect(keys.length, MeasureUnit.values.length);

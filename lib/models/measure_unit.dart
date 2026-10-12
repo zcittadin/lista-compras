@@ -1,3 +1,7 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
+import '../utils/text.dart';
+
 /// Unidades de medida oferecidas ao cadastrar um item.
 ///
 /// No banco a unidade continua sendo texto livre (`items.unit` e
@@ -23,16 +27,39 @@ enum MeasureUnit {
   /// Nome por extenso, mostrado ao escolher.
   final String label;
 
-  /// Reconhece o texto de uma unidade já gravada, ignorando maiúsculas
-  /// ("Kg" e "KG" viram [kg]). Devolve `null` se vazio ou desconhecido
-  /// (ex.: "lata", digitada na época em que o campo era livre).
+  /// Outras grafias comuns (já sem acento, em minúsculas e sem ponto), úteis
+  /// ao ler arquivos feitos por outras pessoas ou programas.
+  static const _aliases = <MeasureUnit, List<String>>{
+    un: ['und', 'unid', 'unidade', 'unidades'],
+    kg: ['kgs', 'quilo', 'quilos', 'kilo', 'kilos', 'quilograma', 'quilogramas'],
+    g: ['gr', 'grs', 'grama', 'gramas'],
+    l: ['lt', 'lts', 'litro', 'litros'],
+    ml: ['mililitro', 'mililitros'],
+    dz: ['duzia', 'duzias'],
+    pct: ['pc', 'pcs', 'pcts', 'pacote', 'pacotes'],
+    cx: ['caixa', 'caixas'],
+    m: ['mt', 'mts', 'metro', 'metros'],
+  };
+
+  /// Só para testes: confere que nenhum apelido se repete entre unidades.
+  @visibleForTesting
+  static Map<MeasureUnit, List<String>> get aliasesForTest => _aliases;
+
+  static final Map<String, MeasureUnit> _lookup = {
+    for (final unit in values) ...{
+      foldForSearch(unit.symbol): unit,
+      for (final alias in _aliases[unit] ?? const <String>[]) alias: unit,
+    },
+  };
+
+  /// Reconhece o texto de uma unidade, ignorando maiúsculas, acentos e pontos
+  /// ("Kg", "KG", "quilos" e "Und." viram [kg] e [un]). Devolve `null` se
+  /// vazio ou desconhecido (ex.: "lata", digitada na época em que o campo era
+  /// livre).
   static MeasureUnit? parse(String? text) {
-    final key = text?.trim().toLowerCase();
-    if (key == null || key.isEmpty) return null;
-    for (final unit in values) {
-      if (unit.symbol.toLowerCase() == key) return unit;
-    }
-    return null;
+    if (text == null) return null;
+    final key = foldForSearch(text).replaceAll('.', '').trim();
+    return key.isEmpty ? null : _lookup[key];
   }
 
   /// Como mostrar [text] na lista: o símbolo padronizado quando reconhecido,

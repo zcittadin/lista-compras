@@ -44,9 +44,8 @@ void main() {
 
     await sync.push();
 
-    expect(remote.calls.length, 3);
-    expect(remote.calls.first, startsWith('upsert lists'));
-    expect(remote.calls.skip(1), everyElement(startsWith('upsert items')));
+    // A lista vai sozinha e antes; os dois itens seguidos vão num lote só.
+    expect(remote.calls, [startsWith('upsert lists'), 'upsertMany items 2']);
     expect(await db.pendingEntries(), isEmpty);
     expect(await db.failedEntries(), isEmpty);
   });
@@ -111,7 +110,13 @@ void main() {
     final failed = await db.failedEntries();
     expect(failed, hasLength(1));
     expect(failed.single.lastError, contains('42501'));
-    expect(remote.calls, hasLength(3)); // lista, Arroz (rejeitado), Feijão
+    // lista; lote de 2 itens (recusado por causa do Arroz); depois um a um.
+    expect(remote.calls, [
+      startsWith('upsert lists'),
+      'upsertMany items 2',
+      startsWith('upsert items'),
+      startsWith('upsert items'),
+    ]);
     expect(await db.pendingEntries(), isEmpty); // Feijão subiu
   });
 
@@ -198,6 +203,123 @@ void main() {
     expect(remote.calls.last, 'update items $itemId');
     expect(remote.payloads.last, {'checked': true});
     expect(await db.pendingEntries(), isEmpty);
+  });
+
+  group('envio em lote', () {
+    test('criações seguidas da mesma tabela vão numa requisição só', () async {
+      for (var i = 0; i < 5; i++) {
+        await products.create('Produto $i');
+      }
+
+      await sync.push();
+
+      expect(remote.calls, ['upsertMany products 5']);
+      expect(await db.pendingEntries(), isEmpty);
+    });
+
+    test('uma criação sozinha continua indo como upsert simples', () async {
+      await products.create('Arroz');
+      await sync.push();
+      expect(remote.calls, [startsWith('upsert products')]);
+    });
+
+    test('o lote respeita o tamanho máximo', () async {
+      final total = SyncService.batchSize * 2 + 30;
+      for (var i = 0; i < total; i++) {
+        await products.create('Produto $i');
+      }
+
+      await sync.push();
+
+      expect(remote.calls, [
+        'upsertMany products ${SyncService.batchSize}',
+        'upsertMany products ${SyncService.batchSize}',
+        'upsertMany products 30',
+      ]);
+      expect(await db.pendingEntries(), isEmpty);
+    });
+
+    test('tabelas diferentes não se misturam e a ordem é preservada', () async {
+      final listId = await newList();
+      await items.addItem(listId, name: 'A');
+      await items.addItem(listId, name: 'B');
+      await products.create('P1');
+      await products.create('P2');
+
+      await sync.push();
+
+      expect(remote.calls, [
+        startsWith('upsert lists'),
+        'upsertMany items 2',
+        'upsertMany products 2',
+      ]);
+    });
+
+    test('atualizações no meio quebram o grupo (não são criações)', () async {
+      await products.create('A');
+      await products.create('B');
+      await sync.push();
+      remote.calls.clear();
+
+      await products.create('C');
+      await products.update(products.find('A')!.id, name: 'A2');
+      await products.create('D');
+      await sync.push();
+
+      // C (criação), A (atualização), D (criação): nenhum grupo com 2+ criações seguidas.
+      expect(remote.calls, [startsWith('upsert products'), startsWith('update products'), startsWith('upsert products')]);
+    });
+
+    test('um lote recusado é reenviado linha a linha, e só a ruim vira falha', () async {
+      for (final n in ['Arroz', 'Veneno', 'Feijão']) {
+        await products.create(n);
+      }
+      remote.onSend = (op, table, row) {
+        if (row['name'] == 'Veneno') throw serverError('23514');
+      };
+
+      await sync.push();
+
+      final failed = await db.failedEntries();
+      expect(failed, hasLength(1));
+      expect(failed.single.lastError, contains('23514'));
+      expect(await db.pendingEntries(), isEmpty); // as outras duas subiram
+      expect(remote.calls.first, 'upsertMany products 3');
+      expect(remote.calls.skip(1), hasLength(3)); // um a um, sem tentar o lote de novo
+    });
+
+    test('sem rede no lote: nada é marcado como enviado, e não conta tentativa', () async {
+      for (var i = 0; i < 3; i++) {
+        await products.create('Produto $i');
+      }
+      remote.onSend = (_, _, _) => throw const SocketException('sem rede');
+
+      await sync.push();
+
+      expect(await db.pendingEntries(), hasLength(3));
+      expect((await db.pendingEntries()).map((e) => e.attempts), everyElement(0));
+      expect(sync.online.value, isFalse);
+
+      remote.onSend = null;
+      await sync.push();
+      expect(await db.pendingEntries(), isEmpty);
+    });
+
+    test('erro de uma criação isolada num lote não derruba as seguintes de outra tabela', () async {
+      final listId = await newList();
+      await items.addItem(listId, name: 'Arroz');
+      await items.addItem(listId, name: 'Feijão');
+      await products.create('P1');
+      await products.create('P2');
+      remote.onSend = (op, table, row) {
+        if (table == 'items') throw serverError('42501');
+      };
+
+      await sync.push();
+
+      expect(await db.failedEntries(), hasLength(2)); // os dois itens
+      expect(await db.pendingEntries(), isEmpty); // lista e produtos subiram
+    });
   });
 
   test('o que subiu volta do servidor sem sobrescrever o que ainda está pendente', () async {

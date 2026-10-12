@@ -209,8 +209,54 @@ class SyncService with WidgetsBindingObserver {
     } while (_pushAgain);
   }
 
+  /// Quantas criações seguidas da mesma tabela vão numa só requisição.
+  static const batchSize = 100;
+
   Future<void> _pushOnce() async {
-    for (final entry in await _db.pendingEntries()) {
+    final entries = await _db.pendingEntries();
+    // Entradas antes deste índice já tiveram o lote recusado: vão uma a uma.
+    var individualUntil = 0;
+    var i = 0;
+
+    while (i < entries.length) {
+      final entry = entries[i];
+
+      // Criações seguidas da mesma tabela (ex.: importar um catálogo) vão em lote.
+      if (entry.op == 'insert' && i >= individualUntil) {
+        var end = i + 1;
+        while (end < entries.length &&
+            end - i < batchSize &&
+            entries[end].op == 'insert' &&
+            entries[end].targetTable == entry.targetTable) {
+          end++;
+        }
+        if (end - i > 1) {
+          final group = entries.sublist(i, end);
+          try {
+            await _remote.upsertMany(entry.targetTable, [
+              for (final e in group) jsonDecode(e.payload) as Map<String, dynamic>,
+            ]);
+            _online.value = true;
+            for (final e in group) {
+              await _db.markSent(e);
+            }
+            i = end;
+            continue;
+          } on PostgrestException catch (e) {
+            // O servidor recusou o lote inteiro porque alguma linha tem
+            // problema. Reenvia uma a uma para achar qual (e subir as demais).
+            _online.value = true;
+            _logError('lote de ${group.length} em ${entry.targetTable} recusado '
+                '(${e.message}); enviando um a um');
+            individualUntil = end;
+          } catch (e) {
+            _logError(e);
+            _online.value = false;
+            return;
+          }
+        }
+      }
+
       try {
         await _send(entry);
         _online.value = true;
@@ -218,9 +264,11 @@ class SyncService with WidgetsBindingObserver {
       } on PostgrestException catch (e) {
         // O servidor respondeu com erro (então há conexão).
         _online.value = true;
-        if (await _handleKnownRejection(entry, e)) continue;
-        final permanent =
-            _isPermanent(e) || entry.attempts + 1 >= maxServerErrors;
+        if (await _handleKnownRejection(entry, e)) {
+          i++;
+          continue;
+        }
+        final permanent = _isPermanent(e) || entry.attempts + 1 >= maxServerErrors;
         _logError(
           '${entry.targetTable}/${entry.op} ${entry.rowId} rejeitado: '
           '${e.message} (código ${e.code})${permanent ? ' [definitivo]' : ''}',
@@ -239,6 +287,7 @@ class SyncService with WidgetsBindingObserver {
         _online.value = false;
         return;
       }
+      i++;
     }
   }
 

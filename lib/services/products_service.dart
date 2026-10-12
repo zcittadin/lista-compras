@@ -113,6 +113,58 @@ class ProductsService {
     await load();
   }
 
+  /// Importa vários produtos de uma vez (tudo ou nada, numa transação) e
+  /// devolve quantos foram de fato criados.
+  ///
+  /// Quem chama já fez a pré-visualização, mas o catálogo pode ter mudado
+  /// desde então, então o banco é conferido de novo: nomes que já existem
+  /// (ignorando maiúsculas e emojis), repetidos na própria lista, vazios ou
+  /// longos demais são pulados em silêncio.
+  Future<int> importProducts(Iterable<({String name, String? unit})> items) async {
+    final ownerId = _currentUserId();
+    if (ownerId == null) throw StateError('Nenhum usuário logado.');
+
+    final taken = {for (final p in await _activeProducts()) _key(p.name)};
+    var created = 0;
+
+    await _db.transaction(() async {
+      for (final item in items) {
+        final name = item.name.trim();
+        if (name.isEmpty || name.length > maxNameLength) continue;
+        if (!taken.add(_key(name))) continue;
+
+        final id = _uuid.v4();
+        final now = _now().toUtc();
+        final unit = _cleanUnit(item.unit);
+        await _db.into(_db.localProducts).insert(
+              LocalProductsCompanion.insert(
+                id: id,
+                ownerId: ownerId,
+                name: name,
+                defaultUnit: Value(unit),
+                createdAt: now,
+                updatedAt: now,
+              ),
+            );
+        await _db.enqueue(
+          table: 'products',
+          rowId: id,
+          isInsert: true,
+          fields: {
+            'id': id,
+            'owner_id': ownerId,
+            'name': name,
+            'default_unit': unit,
+            'created_at': now.toIso8601String(),
+          },
+        );
+        created++;
+      }
+    });
+    await load();
+    return created;
+  }
+
   /// Altera nome e unidade padrão. Lança [DuplicateProductException] se o novo
   /// nome já pertence a OUTRO produto (mudar só maiúsculas do próprio nome é permitido).
   Future<void> update(String id, {required String name, String? unit}) async {

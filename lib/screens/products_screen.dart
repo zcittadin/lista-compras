@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/measure_unit.dart';
 import '../models/product.dart';
+import '../services/catalog_files.dart';
+import '../services/catalog_import.dart';
 import '../services/products_service.dart';
 import '../utils/text.dart';
 import '../widgets/product_dialog.dart';
+import 'import_catalog_screen.dart';
 import '../widgets/sync_status_banner.dart';
 
 /// Gerenciamento do catálogo de produtos: buscar, criar, editar e apagar.
@@ -47,6 +51,58 @@ class _ProductsScreenState extends State<ProductsScreen> {
     );
   }
 
+  void _toast(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _import() async {
+    final existing = [for (final p in await _service.watchProducts().first) p.name];
+    if (!mounted) return;
+    final count = await Navigator.push<int>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ImportCatalogScreen(
+          existingNames: existing,
+          onImport: _service.importProducts,
+        ),
+      ),
+    );
+    if (count != null && mounted) {
+      _toast(count == 1 ? '1 produto importado' : '$count produtos importados');
+    }
+  }
+
+  Future<List<({String name, String? unit})>?> _exportable() async {
+    final products = await _service.watchProducts().first;
+    if (products.isEmpty) {
+      if (mounted) _toast('O catálogo está vazio.');
+      return null;
+    }
+    return [for (final p in products) (name: p.name, unit: p.defaultUnit)];
+  }
+
+  Future<void> _exportFile() async {
+    final items = await _exportable();
+    if (items == null) return;
+    try {
+      final saved = await saveCatalogFile(catalogCsvBytes(items));
+      if (saved && mounted) _toast('Catálogo exportado (${items.length} produtos)');
+    } catch (e) {
+      if (mounted) _toast('Não foi possível exportar: $e');
+    }
+  }
+
+  Future<void> _copyText() async {
+    final items = await _exportable();
+    if (items == null) return;
+    await Clipboard.setData(ClipboardData(text: buildCatalogCsv(items)));
+    if (mounted) {
+      _toast('${items.length} produtos copiados. Cole em uma mensagem ou em Importar > Colar texto.');
+    }
+  }
+
   Future<void> _delete(Product product) async {
     setState(() => _hidden.add(product.id));
     final messenger = ScaffoldMessenger.of(context);
@@ -87,7 +143,29 @@ class _ProductsScreenState extends State<ProductsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Catálogo de produtos')),
+      appBar: AppBar(
+        title: const Text('Catálogo de produtos'),
+        actions: [
+          PopupMenuButton<String>(
+            tooltip: 'Mais opções',
+            onSelected: (action) {
+              switch (action) {
+                case 'import':
+                  _import();
+                case 'export':
+                  _exportFile();
+                case 'copy':
+                  _copyText();
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'import', child: Text('Importar catálogo…')),
+              PopupMenuItem(value: 'export', child: Text('Exportar para arquivo…')),
+              PopupMenuItem(value: 'copy', child: Text('Copiar como texto')),
+            ],
+          ),
+        ],
+      ),
       body: Column(
         children: [
           const SyncStatusBanner(),
@@ -137,7 +215,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       padding: EdgeInsets.all(24),
                       child: Text(
                         'Nenhum produto no catálogo ainda.\n'
-                        'Eles entram sozinhos ao adicionar itens, ou toque em + para criar.',
+                        'Eles entram sozinhos ao adicionar itens, ou toque em + para criar.\n'
+                        'Para trazer uma lista pronta, use o menu ⋮ > Importar catálogo.',
                         textAlign: TextAlign.center,
                       ),
                     ),

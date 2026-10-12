@@ -178,6 +178,65 @@ void main() {
       });
     });
 
+    group('importar', () {
+      test('cria os produtos novos, com unidade, e enfileira cada um', () async {
+        final n = await products.importProducts([
+          (name: 'Arroz', unit: 'kg'),
+          (name: 'Leite', unit: 'L'),
+          (name: 'Sal', unit: null),
+        ]);
+
+        expect(n, 3);
+        expect(await names(), ['Arroz', 'Leite', 'Sal']);
+        expect(products.find('Leite')?.defaultUnit, 'L'); // cache atualizado
+        final entries = await db.pendingEntries();
+        expect(entries, hasLength(3));
+        expect(entries.map((e) => e.op), everyElement('insert'));
+        expect(payloadOf(entries.first), containsPair('owner_id', 'u1'));
+      });
+
+      test('pula o que já existe (ignorando maiúsculas e emojis), repetido, vazio e longo', () async {
+        await products.create('Arroz 🍚');
+
+        final n = await products.importProducts([
+          (name: 'arroz', unit: 'kg'), // já existe
+          (name: 'Feijão', unit: 'kg'),
+          (name: 'feijão', unit: 'kg'), // repetido na lista
+          (name: '   ', unit: null),
+          (name: 'x' * 121, unit: null),
+          (name: 'Leite', unit: null),
+        ]);
+
+        expect(n, 2);
+        expect(await names(), ['Arroz 🍚', 'Feijão', 'Leite']);
+      });
+
+      test('é tudo ou nada: se algo falhar, nada fica gravado', () async {
+        final unlogged = ProductsService(db, currentUserId: () => null);
+        await expectLater(unlogged.importProducts([(name: 'Arroz', unit: null)]), throwsStateError);
+        expect(await names(), isEmpty);
+        expect(await db.pendingEntries(), isEmpty);
+      });
+
+      test('importar a mesma lista de novo não cria nada', () async {
+        const list = [(name: 'Arroz', unit: 'kg'), (name: 'Leite', unit: 'L')];
+        await products.importProducts(list);
+
+        expect(await products.importProducts(list), 0);
+        expect(await names(), hasLength(2));
+      });
+
+      test('muitos produtos de uma vez', () async {
+        final n = await products.importProducts([
+          for (var i = 0; i < 500; i++) (name: 'Produto $i', unit: i.isEven ? 'un' : null),
+        ]);
+
+        expect(n, 500);
+        expect(await names(), hasLength(500));
+        expect(await db.pendingEntries(), hasLength(500));
+      });
+    });
+
     group('listar', () {
       test('em ordem alfabética sem diferenciar maiúsculas, sem os apagados', () async {
         await products.create('banana');
@@ -438,6 +497,52 @@ void main() {
       final seen = await phone2.products.watchProducts().first;
       expect(seen.map((p) => p.name), ['Leite']);
       expect(seen.single.defaultUnit, 'L'); // vale o do celular que chegou primeiro
+    });
+
+    test('importar um catálogo grande sobe em poucas requisições e chega ao outro celular', () async {
+      final total = 250;
+      await phone1.products.importProducts([
+        for (var i = 0; i < total; i++) (name: 'Produto $i', unit: i % 3 == 0 ? 'kg' : null),
+      ]);
+
+      await phone1.sync_();
+
+      expect(serverProducts(), hasLength(total));
+      expect(phone1.net.manyCalls, 3); // 100 + 100 + 50, em vez de 250 requisições
+      expect(await phone1.db.pendingEntries(), isEmpty);
+      expect(await phone1.db.failedEntries(), isEmpty);
+
+      await phone2.sync_();
+      expect(await phone2.products.watchProducts().first, hasLength(total));
+    });
+
+    test('importar o mesmo arquivo nos dois celulares do mesmo usuário não duplica', () async {
+      const list = [(name: 'Arroz', unit: 'kg'), (name: 'Leite', unit: 'L'), (name: 'Sal', unit: null)];
+      await phone1.products.importProducts(list);
+      await phone1.sync_();
+      await phone2.sync_();
+      await phone2.products.load();
+
+      // O celular 2 importa o mesmo arquivo: a conferência vê o que já chegou.
+      expect(await phone2.products.importProducts(list), 0);
+      expect(serverProducts(), hasLength(3));
+    });
+
+    test('mesmo arquivo importado offline nos dois celulares: sobra um de cada, sem falha', () async {
+      const list = [(name: 'Arroz', unit: 'kg'), (name: 'Leite', unit: 'L')];
+      await phone1.goOffline();
+      await phone2.goOffline();
+      await phone1.products.importProducts(list);
+      await phone2.products.importProducts(list);
+
+      await phone1.goOnline();
+      await phone1.sync_();
+      await phone2.goOnline();
+      await phone2.sync_(); // o lote é recusado (nomes repetidos); cada um é tratado
+
+      expect(serverProducts(), hasLength(2));
+      expect(await phone2.db.failedEntries(), isEmpty);
+      expect((await phone2.products.watchProducts().first).map((p) => p.name), ['Arroz', 'Leite']);
     });
 
     test('renomear para um nome que o servidor já tem vira falha explicada', () async {

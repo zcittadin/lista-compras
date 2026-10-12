@@ -33,8 +33,8 @@ aparecerem pela primeira vez, de forma breve.
    itens criados offline sincronizam ao reconectar. Feito em 6 fases (A a F),
    testado com dois celulares em 2026-10-12.
 
-Plano concluído. Depois dele: gerenciamento do catálogo de produtos (feito) e
-importação/exportação do catálogo (a fazer). Ideias sem aprovação: sincronização
+Plano concluído. Depois dele: gerenciamento do catálogo de produtos e
+importação/exportação do catálogo (feitos). Ideias sem aprovação: sincronização
 com o app fechado (WorkManager), participantes disponíveis offline, iOS.
 
 ## Decisões técnicas
@@ -121,8 +121,26 @@ com o app fechado (WorkManager), participantes disponíveis offline, iOS.
   `unique (owner_id, name)` por índice único parcial `(owner_id, lower(name)) where
   deleted_at is null` (senão apagar e recriar o nome seria recusado). `products` não
   está no Realtime: outro aparelho só vê mudanças ao abrir/voltar/reconectar.
-  **Próximo passo combinado:** importar catálogo inicial por arquivo (CSV/TXT, e colar
-  texto) com pré-visualização, mais exportar; ainda não feito.
+- **Importar/exportar catálogo:** menu ⋮ da tela do catálogo. Objetivo do Zander:
+  montar um catálogo inicial pronto (ele e a esposa importam o mesmo). Arquivo (CSV/TXT,
+  `file_picker`) ou texto colado, SEMPRE com pré-visualização antes de gravar (novos,
+  já existentes, repetidos no arquivo, inválidos, unidade desconhecida).
+  `CatalogParser` (`lib/services/catalog_import.dart`) é lógica pura e bem testada:
+  UTF-8/BOM, Windows-1252 (Excel em português), UTF-16; detecta `;`/tab/vírgula (só se
+  presente na maioria das linhas e fora de aspas); cabeçalho opcional (`nome`, `produto`,
+  `item`; `unidade`, `medida`); recusa xlsx/pdf/binário com mensagem; limites 1 MB,
+  2000 linhas, nome ≤ 120. Duplicatas pela mesma identidade do catálogo (`nameKey`:
+  ignora maiúsculas e emojis, acentos contam). `ProductsService.importProducts` grava
+  tudo numa transação e reconfere o banco. Unidades aceitam apelidos (`MeasureUnit.parse`:
+  "quilos", "lt", "und.", "mt"...). Exportar: `buildCatalogCsv` (`nome;unidade`) para
+  arquivo (UTF-8 com BOM, Excel-friendly) ou área de transferência; ida e volta testada.
+  O seletor de arquivo não filtra extensão (gerenciadores do Android escondem `.csv`).
+  Guia do usuário em `docs/IMPORTAR_CATALOGO.md`; `docs/catalogo_inicial.csv` (~130
+  produtos) é validado por teste.
+- **Envio em lote:** criações seguidas da mesma tabela vão em um `upsertMany` (até
+  `SyncService.batchSize` = 100 por requisição, `defaultToNull: false`). O lote é atômico
+  no servidor: se for recusado, o app reenvia uma a uma para isolar a linha ruim. Importar
+  300 produtos = 3 requisições, não 300.
   O catálogo `products` é lido do banco local ao abrir uma lista (é pessoal, sem Realtime).
 - **Compartilhamento:** tela de participantes (`members_screen.dart`), acessível
   pelo ícone de grupo na lista e pelo menu de três pontinhos na tela inicial

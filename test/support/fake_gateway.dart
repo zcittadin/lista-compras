@@ -34,6 +34,17 @@ class FakeGateway implements RemoteGateway {
     await onSend?.call('upsert', table, row);
   }
 
+  /// Tudo ou nada, como no servidor: [onSend] é chamado por linha e, se lançar,
+  /// o lote inteiro falha.
+  @override
+  Future<void> upsertMany(String table, List<Map<String, dynamic>> rows) async {
+    calls.add('upsertMany $table ${rows.length}');
+    payloads.addAll(rows);
+    for (final row in rows) {
+      await onSend?.call('upsert', table, row);
+    }
+  }
+
   @override
   Future<bool> update(String table, String id, Map<String, dynamic> fields) async {
     calls.add('update $table $id');

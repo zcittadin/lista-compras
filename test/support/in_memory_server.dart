@@ -83,6 +83,21 @@ class InMemoryServer {
     tables[table]![id] = merged;
   }
 
+  /// Atômico: se uma linha for recusada, nenhuma fica gravada.
+  void upsertMany(String user, String table, List<Map<String, dynamic>> rows) {
+    final snapshot = Map<String, Map<String, dynamic>>.of(tables[table]!);
+    try {
+      for (final row in rows) {
+        upsert(user, table, row);
+      }
+    } catch (_) {
+      tables[table]!
+        ..clear()
+        ..addAll(snapshot);
+      rethrow;
+    }
+  }
+
   bool update(String user, String table, String id, Map<String, dynamic> fields) {
     final row = tables[table]![id];
     if (row == null || !canSee(user, table, row)) return false;
@@ -114,6 +129,17 @@ class ServerGateway implements RemoteGateway {
   Future<void> upsert(String table, Map<String, dynamic> row) async {
     _requireNetwork();
     server.upsert(user, table, row);
+    afterApply?.call();
+  }
+
+  /// Quantas requisições de lote o servidor recebeu (para os testes).
+  int manyCalls = 0;
+
+  @override
+  Future<void> upsertMany(String table, List<Map<String, dynamic>> rows) async {
+    _requireNetwork();
+    manyCalls++;
+    server.upsertMany(user, table, rows);
     afterApply?.call();
   }
 

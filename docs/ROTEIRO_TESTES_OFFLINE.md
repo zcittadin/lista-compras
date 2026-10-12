@@ -80,6 +80,23 @@ Em modo avião, abra Participantes: mensagem "Sem conexão…" com botão
 6. A busca ignora acentos ("acucar" acha "Açúcar") e a ordem alfabética
    também (Açúcar antes de Arroz).
 
+## 8. Importar e exportar o catálogo
+
+Detalhes dos formatos em [IMPORTAR_CATALOGO.md](IMPORTAR_CATALOGO.md).
+
+1. Passe `docs/catalogo_inicial.csv` para o celular. No catálogo: ⋮ → **Importar
+   catálogo…** → **Escolher arquivo**. A pré-visualização mostra os produtos novos
+   e quais já existem (ex.: Arroz, Alcatra). Nada é gravado ainda.
+2. Toque em **Importar N produtos**: eles aparecem no catálogo, em ordem alfabética.
+3. Importe o mesmo arquivo de novo: "Nada novo para importar".
+4. **Colar texto**: cole algumas linhas (com e sem `;unidade`) e confira a
+   pré-visualização, incluindo uma linha repetida e uma com unidade desconhecida.
+5. Escolha um arquivo que não é texto (um PDF ou `.xlsx`): mensagem clara, sem travar.
+6. **Copiar como texto** no celular A e **Colar texto** no celular B (ou **Exportar
+   para arquivo…** e importar o arquivo): só entram os produtos que B não tinha.
+7. Importe com internet desligada: a faixa mostra as alterações pendentes e tudo
+   sobe ao reconectar (em poucas requisições, não uma por produto).
+
 ## Se algo falhar
 
 O Debug Console (com o celular conectado e `flutter run`) mostra linhas
