@@ -13,8 +13,11 @@ import 'remote_gateway.dart';
 ///
 /// - ENVIA (`push`): percorre a fila de pendências e manda cada mudança ao
 ///   servidor, na ordem em que foram feitas.
-/// - RECEBE: copia o servidor para o banco local (busca inicial + Realtime),
-///   sem sobrescrever linhas com mudança local ainda não enviada.
+/// - RECEBE: copia o servidor para o banco local, sem sobrescrever linhas com
+///   mudança local ainda não enviada. O Realtime serve só de AVISO ("algo
+///   mudou"); os dados vêm sempre de consultas REST, onde a RLS do servidor
+///   decide o que o usuário pode ver. Nunca aplicamos o conteúdo de um evento
+///   Realtime diretamente.
 ///
 /// O envio é tentado: logo depois de cada alteração, ao abrir o app, ao voltar
 /// ao primeiro plano, quando a conexão volta e a cada 30 segundos.
@@ -40,8 +43,9 @@ class SyncService with WidgetsBindingObserver {
   final List<StreamSubscription<Object?>> _subscriptions = [];
   Timer? _pushTimer;
   Timer? _retryTimer;
+  RealtimeChannel? _channel;
   bool _started = false;
-  String? _membershipStamp;
+  bool _wasSubscribed = false;
 
   // -------------------------------------------------------------------
   // Ciclo de vida
@@ -68,33 +72,28 @@ class SyncService with WidgetsBindingObserver {
     // Rede instável não gera evento de conexão: tenta de novo de tempos em tempos.
     _retryTimer = Timer.periodic(_retryEvery, (_) => push());
 
-    // Realtime: `.stream()` emite a tabela inteira a cada mudança.
-    for (final table in ['lists', 'items']) {
-      _subscriptions.add(
-        _supabase.from(table).stream(primaryKey: ['id']).listen(
-              (rows) => _guard(() => applyRemoteRows(table, rows)),
-              onError: _logError,
-            ),
+    // Realtime como aviso: qualquer mudança nas tabelas dispara uma busca
+    // (REST) daquela tabela. Ser convidado ou removido só mexe em
+    // `list_members` e não altera a linha da lista, então esse aviso busca
+    // listas e itens.
+    _channel = _supabase.channel('sync-changes');
+    for (final table in ['lists', 'items', 'list_members']) {
+      _channel!.onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: table,
+        callback: (_) => _schedulePull(table == 'list_members' ? ['lists', 'items'] : [table]),
       );
     }
-
-    // Ser convidado só insere em `list_members` e não muda a linha da lista,
-    // então nem `lists` nem `items` avisam. Quando as participações mudam,
-    // busca tudo de novo.
-    _subscriptions.add(
-      _supabase
-          .from('list_members')
-          .stream(primaryKey: ['list_id', 'user_id'])
-          .map((rows) {
-            final keys = [for (final r in rows) '${r['list_id']}:${r['user_id']}']..sort();
-            return keys.join(',');
-          })
-          .listen((stamp) {
-            final changed = _membershipStamp != null && stamp != _membershipStamp;
-            _membershipStamp = stamp;
-            if (changed) pullAll();
-          }, onError: _logError),
-    );
+    _channel!.subscribe((status, [error]) {
+      if (status == RealtimeSubscribeStatus.subscribed) {
+        // Depois de uma reconexão, pode ter havido eventos que não recebemos.
+        if (_wasSubscribed) syncNow();
+        _wasSubscribed = true;
+      } else if (error != null) {
+        _logError(error);
+      }
+    });
   }
 
   /// Para de sincronizar (ao sair da conta).
@@ -106,8 +105,13 @@ class SyncService with WidgetsBindingObserver {
     _subscriptions.clear();
     _pushTimer?.cancel();
     _retryTimer?.cancel();
+    _pullTimer?.cancel();
+    _tablesToPull.clear();
+    final channel = _channel;
+    _channel = null;
+    if (channel != null) _supabase.removeChannel(channel);
     _started = false;
-    _membershipStamp = null;
+    _wasSubscribed = false;
   }
 
   @override
@@ -228,13 +232,138 @@ class SyncService with WidgetsBindingObserver {
   // Recebimento
   // -------------------------------------------------------------------
 
-  /// Busca tudo o que o usuário pode ver (a RLS filtra no servidor).
-  Future<void> pullAll() {
-    return _guard(() async {
-      for (final table in ['lists', 'items', 'products']) {
-        await applyRemoteRows(table, await _remote.selectAll(table));
+  /// Sobreposição ao buscar "o que mudou desde o último marco": uma linha
+  /// gravada mas só confirmada (commit) depois do marco ainda seria pega.
+  static const _cursorOverlap = Duration(minutes: 5);
+
+  static const _allTables = ['lists', 'items', 'products'];
+  static const _pullDelay = Duration(milliseconds: 300);
+
+  final Set<String> _tablesToPull = {};
+  Timer? _pullTimer;
+  bool _pulling = false;
+
+  /// Agenda a busca de [tables], juntando avisos seguidos numa busca só.
+  void _schedulePull(Iterable<String> tables) {
+    _tablesToPull.addAll(tables);
+    _pullTimer?.cancel();
+    _pullTimer = Timer(_pullDelay, () => pull(const []));
+  }
+
+  /// Busca tudo.
+  Future<void> pullAll() => pull(_allTables);
+
+  /// Atualiza o banco local com o servidor para as tabelas pedidas. Uma
+  /// execução por vez; pedidos feitos durante ela entram numa nova rodada.
+  Future<void> pull(Iterable<String> tables) async {
+    _tablesToPull.addAll(tables);
+    if (_pulling) return;
+    _pulling = true;
+    try {
+      while (_tablesToPull.isNotEmpty) {
+        // Ordem fixa: listas, itens, produtos.
+        final batch = _allTables.where(_tablesToPull.contains).toList();
+        _tablesToPull.clear();
+        for (final table in batch) {
+          await _guard(() => _pullTable(table));
+        }
       }
-    });
+    } finally {
+      _pulling = false;
+    }
+  }
+
+  /// Sincroniza uma tabela em três passos:
+  ///
+  /// 1. REMOVER o que sumiu: o servidor não avisa quando você perde o acesso
+  ///    a uma lista (ser removido de `list_members` não altera a linha da
+  ///    lista); a linha simplesmente deixa de ser devolvida. Por isso
+  ///    comparamos os IDs visíveis com os locais e apagamos os que sumiram,
+  ///    exceto os que têm mudança local pendente.
+  /// 2. TRAZER O QUE MUDOU desde o último marco (`updated_at`).
+  /// 3. TRAZER O QUE FALTA: linhas que ficaram visíveis agora (ex.: você foi
+  ///    convidado para uma lista antiga) têm `updated_at` antigo e não
+  ///    apareceriam no passo 2.
+  Future<void> _pullTable(String table) async {
+    // Fotografia do que existia ANTES de perguntar ao servidor: só entra na
+    // limpeza o que já estava sincronizado. Uma linha criada aqui durante a
+    // busca ainda não está no servidor e não pode ser apagada por engano.
+    final pendingAtStart = await _db.pendingRowIds(table);
+    final localAtStart = await _localIds(table);
+    final cursor = await _db.getCursor('pull:$table');
+
+    final serverIds = (await _remote.selectIds(table)).toSet();
+
+    final gone = localAtStart.difference(pendingAtStart).difference(serverIds);
+    if (gone.isNotEmpty) {
+      await _db.transaction(() async {
+        // Reconfere: o usuário pode ter editado uma dessas linhas agora.
+        final pendingNow = await _db.pendingRowIds(table);
+        final toDelete = gone.difference(pendingNow);
+        _logError('$table: removendo ${toDelete.length} linha(s) que o servidor não mostra mais');
+        await _deleteLocal(table, toDelete);
+      });
+    }
+
+    final byId = <String, Map<String, dynamic>>{};
+    if (cursor == null) {
+      for (final r in await _remote.selectAll(table)) {
+        byId[r['id'] as String] = r;
+      }
+    } else {
+      final since = DateTime.parse(cursor).subtract(_cursorOverlap);
+      for (final r in await _remote.selectUpdatedSince(table, since)) {
+        byId[r['id'] as String] = r;
+      }
+      final missing = serverIds.difference(await _localIds(table)).difference(byId.keys.toSet());
+      if (missing.isNotEmpty) {
+        for (final r in await _remote.selectByIds(table, missing.toList())) {
+          byId[r['id'] as String] = r;
+        }
+      }
+    }
+
+    final rows = byId.values.toList();
+    await applyRemoteRows(table, rows);
+
+    // O marco só avança depois de aplicar com sucesso.
+    final newest = rows
+        .map((r) => _tsOrNull(r['updated_at']))
+        .whereType<DateTime>()
+        .fold<DateTime?>(null, (a, b) => a == null || b.isAfter(a) ? b : a);
+    if (newest != null) {
+      final old = cursor == null ? null : DateTime.parse(cursor);
+      if (old == null || newest.isAfter(old)) {
+        await _db.setCursor('pull:$table', newest.toUtc().toIso8601String());
+      }
+    }
+  }
+
+  Future<Set<String>> _localIds(String table) async {
+    switch (table) {
+      case 'lists':
+        return (await _db.select(_db.localLists).map((r) => r.id).get()).toSet();
+      case 'items':
+        return (await _db.select(_db.localItems).map((r) => r.id).get()).toSet();
+      case 'products':
+        return (await _db.select(_db.localProducts).map((r) => r.id).get()).toSet();
+    }
+    throw ArgumentError('Tabela desconhecida: $table');
+  }
+
+  Future<void> _deleteLocal(String table, Set<String> ids) async {
+    if (ids.isEmpty) return;
+    final list = ids.toList();
+    switch (table) {
+      case 'lists':
+        await (_db.delete(_db.localLists)..where((t) => t.id.isIn(list))).go();
+      case 'items':
+        await (_db.delete(_db.localItems)..where((t) => t.id.isIn(list))).go();
+      case 'products':
+        await (_db.delete(_db.localProducts)..where((t) => t.id.isIn(list))).go();
+      default:
+        throw ArgumentError('Tabela desconhecida: $table');
+    }
   }
 
   /// Copia [rows] (como vieram do Supabase) para o banco local, pulando as

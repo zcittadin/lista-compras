@@ -37,6 +37,16 @@ class ListsService {
     return query.watch().map((rows) => rows.map(ShoppingList.fromLocal).toList());
   }
 
+  /// Uma lista só: emite a versão atual a cada mudança, e `null` quando ela
+  /// deixa de existir para o usuário (apagada pelo dono ou acesso removido).
+  Stream<ShoppingList?> watchList(String id) {
+    final query = _db.select(_db.localLists)
+      ..where((l) => l.id.equals(id) & l.deletedAt.isNull());
+    return query.watchSingleOrNull().map(
+          (row) => row == null ? null : ShoppingList.fromLocal(row),
+        );
+  }
+
   /// O id nasce no celular (UUID), como pede o modo offline.
   Future<void> createList({
     required String name,

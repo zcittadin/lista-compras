@@ -8,7 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// significa que não houve comunicação.
 abstract class RemoteGateway {
   /// Cria a linha, ou atualiza se o id já existir (`INSERT ... ON CONFLICT`).
-  /// Assim reenviar uma criação cujo resultado não ficou claro não duplica.
+  /// Assim reenviar uma criação cujo resultado ficou incerto não duplica.
   Future<void> upsert(String table, Map<String, dynamic> row);
 
   /// Atualiza só os campos de [fields] da linha [id]. Devolve `false` se nenhuma
@@ -17,10 +17,27 @@ abstract class RemoteGateway {
 
   /// Todas as linhas que o usuário pode ver (a RLS filtra no servidor).
   Future<List<Map<String, dynamic>>> selectAll(String table);
+
+  /// Só os IDs das linhas visíveis para o usuário. Serve para descobrir o que
+  /// deixou de ser visível (removido da lista, por exemplo): o servidor não
+  /// avisa isso, só deixa de devolver a linha.
+  Future<List<String>> selectIds(String table);
+
+  /// Linhas alteradas em [since] ou depois (por `updated_at`).
+  Future<List<Map<String, dynamic>>> selectUpdatedSince(String table, DateTime since);
+
+  /// As linhas com esses IDs (as que o usuário não puder ver não voltam).
+  Future<List<Map<String, dynamic>>> selectByIds(String table, List<String> ids);
 }
 
 class SupabaseGateway implements RemoteGateway {
   SupabaseClient get _client => Supabase.instance.client;
+
+  /// O Supabase devolve no máximo 1000 linhas por consulta (padrão do projeto).
+  static const _pageSize = 1000;
+
+  /// Ids por consulta em `selectByIds` (para a URL não ficar enorme).
+  static const _idChunk = 100;
 
   @override
   Future<void> upsert(String table, Map<String, dynamic> row) async {
@@ -36,8 +53,46 @@ class SupabaseGateway implements RemoteGateway {
   }
 
   @override
-  Future<List<Map<String, dynamic>>> selectAll(String table) async {
-    final rows = await _client.from(table).select();
-    return List<Map<String, dynamic>>.from(rows);
+  Future<List<Map<String, dynamic>>> selectAll(String table) {
+    return _paged((from, to) => _client.from(table).select().order('id').range(from, to));
+  }
+
+  @override
+  Future<List<String>> selectIds(String table) async {
+    final rows = await _paged(
+      (from, to) => _client.from(table).select('id').order('id').range(from, to),
+    );
+    return [for (final r in rows) r['id'] as String];
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> selectUpdatedSince(String table, DateTime since) {
+    final iso = since.toUtc().toIso8601String();
+    return _paged(
+      (from, to) =>
+          _client.from(table).select().gte('updated_at', iso).order('id').range(from, to),
+    );
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> selectByIds(String table, List<String> ids) async {
+    final result = <Map<String, dynamic>>[];
+    for (var i = 0; i < ids.length; i += _idChunk) {
+      final chunk = ids.sublist(i, i + _idChunk > ids.length ? ids.length : i + _idChunk);
+      result.addAll(await _client.from(table).select().inFilter('id', chunk));
+    }
+    return result;
+  }
+
+  /// Busca página por página até acabar. A ordem por `id` mantém as páginas estáveis.
+  Future<List<Map<String, dynamic>>> _paged(
+    Future<List<Map<String, dynamic>>> Function(int from, int to) fetch,
+  ) async {
+    final all = <Map<String, dynamic>>[];
+    for (var from = 0;; from += _pageSize) {
+      final page = await fetch(from, from + _pageSize - 1);
+      all.addAll(page);
+      if (page.length < _pageSize) return all;
+    }
   }
 }

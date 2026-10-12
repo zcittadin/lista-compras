@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/item.dart';
 import '../models/product.dart';
 import '../models/shopping_list.dart';
 import '../services/items_service.dart';
+import '../services/lists_service.dart';
 import '../services/products_service.dart';
 import 'members_screen.dart';
 
@@ -23,15 +26,36 @@ class _ListScreenState extends State<ListScreen> {
   final _newItemFocus = FocusNode();
   final _products = ProductsService.instance;
 
+  // Versão atual da lista (o nome pode mudar; ela pode sumir).
+  late ShoppingList _list = widget.list;
+  StreamSubscription<ShoppingList?>? _listSub;
+
   @override
   void initState() {
     super.initState();
+    _listSub = ListsService.instance.watchList(widget.list.id).listen(_onListChanged);
     // Sem catálogo o app continua funcionando, só sem sugestões.
     _products.load().then((_) => null, onError: (_) => null);
   }
 
+  /// A lista deixou de existir para este usuário (o dono a apagou, ou ele foi
+  /// removido dela): volta para a tela inicial e avisa.
+  void _onListChanged(ShoppingList? list) {
+    if (!mounted) return;
+    if (list != null) {
+      setState(() => _list = list);
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    Navigator.of(context).popUntil((r) => r.isFirst);
+    messenger.showSnackBar(
+      SnackBar(content: Text('"${_list.name}" não está mais disponível para você.')),
+    );
+  }
+
   @override
   void dispose() {
+    _listSub?.cancel();
     _newItem.dispose();
     _newItemFocus.dispose();
     super.dispose();
@@ -102,14 +126,14 @@ class _ListScreenState extends State<ListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.list.name),
+        title: Text(_list.name),
         actions: [
           IconButton(
             tooltip: 'Participantes',
             icon: const Icon(Icons.group),
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => MembersScreen(list: widget.list)),
+              MaterialPageRoute(builder: (_) => MembersScreen(list: _list)),
             ),
           ),
         ],

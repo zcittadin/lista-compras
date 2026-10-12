@@ -97,6 +97,26 @@ void main() {
     });
   });
 
+  group('uma lista só', () {
+    test('watchList acompanha renomeações e emite null quando a lista some', () async {
+      final id = await createListAndGetId();
+
+      final expectation = expectLater(
+        lists.watchList(id),
+        emitsInOrder([
+          predicate<ShoppingList?>((l) => l?.name == 'Mercado'),
+          predicate<ShoppingList?>((l) => l?.name == 'Semana'),
+          isNull,
+        ]),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await lists.updateList(id, name: 'Semana', category: ListCategory.mercado);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await lists.deleteList(id);
+      await expectation;
+    });
+  });
+
   group('itens', () {
     test('adicionar grava local e na fila, sem quantidade padrão', () async {
       final listId = await createListAndGetId();

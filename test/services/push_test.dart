@@ -8,41 +8,8 @@ import 'package:lista_compras/models/shopping_list.dart';
 import 'package:lista_compras/services/items_service.dart';
 import 'package:lista_compras/services/lists_service.dart';
 import 'package:lista_compras/services/products_service.dart';
-import 'package:lista_compras/services/remote_gateway.dart';
 import 'package:lista_compras/services/sync_service.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-
-/// Servidor falso: registra as chamadas e permite simular falhas.
-class FakeGateway implements RemoteGateway {
-  final calls = <String>[];
-  final payloads = <Map<String, dynamic>>[];
-
-  /// Se definido, é chamado a cada envio; pode lançar para simular falhas.
-  FutureOr<void> Function(String op, String table, Map<String, dynamic> row)? onSend;
-  bool updateFindsRow = true;
-  List<Map<String, dynamic>> pullRows = [];
-
-  @override
-  Future<void> upsert(String table, Map<String, dynamic> row) async {
-    calls.add('upsert $table ${row['id']}');
-    payloads.add(row);
-    await onSend?.call('upsert', table, row);
-  }
-
-  @override
-  Future<bool> update(String table, String id, Map<String, dynamic> fields) async {
-    calls.add('update $table $id');
-    payloads.add(fields);
-    await onSend?.call('update', table, fields);
-    return updateFindsRow;
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> selectAll(String table) async => pullRows;
-}
-
-PostgrestException serverError(String code) =>
-    PostgrestException(message: 'erro $code', code: code);
+import '../support/fake_gateway.dart';
 
 void main() {
   late AppDatabase db;
