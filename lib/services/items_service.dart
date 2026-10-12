@@ -1,36 +1,39 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 
+import '../data/app_database.dart';
 import '../models/item.dart';
+import 'auth_service.dart';
 
-/// Acesso aos itens de uma lista no Supabase.
-///
-/// Mesma ideia do `ListsService`: UUID gerado no celular, exclusão suave
-/// (`deleted_at`) e Realtime por `stream()`. A RLS garante que só membros
-/// da lista leem e escrevem os itens dela.
+/// Itens de uma lista, local-first (mesma ideia do `ListsService`):
+/// grava no SQLite e na fila de pendências; o `SyncService` cuida do servidor.
 class ItemsService {
-  ItemsService._();
-  static final instance = ItemsService._();
+  ItemsService(
+    this._db, {
+    required this._currentUserId,
+    this._now = DateTime.now,
+  });
+
+  static final instance = ItemsService(
+    AppDatabase.instance,
+    currentUserId: () => AuthService.instance.currentUser?.id,
+  );
 
   static const _uuid = Uuid();
 
-  SupabaseClient get _supabase => Supabase.instance.client;
+  final AppDatabase _db;
+  final String? Function() _currentUserId;
+  final DateTime Function() _now;
 
   Stream<List<Item>> watchItems(String listId) {
-    return _supabase
-        .from('items')
-        .stream(primaryKey: ['id'])
-        .eq('list_id', listId)
-        .order('created_at')
-        .map(
-          (rows) => rows
-              .where((row) => row['deleted_at'] == null)
-              .map(Item.fromMap)
-              .toList(),
-        );
+    final query = _db.select(_db.localItems)
+      ..where((i) => i.listId.equals(listId) & i.deletedAt.isNull())
+      ..orderBy([(i) => OrderingTerm.asc(i.createdAt)]);
+    return query.watch().map((rows) => rows.map(Item.fromLocal).toList());
   }
 
-  /// `created_by` vem do `auth.uid()` por padrão no banco.
+  /// `created_at` é enviado pelo celular para preservar a ordem em que o
+  /// item foi digitado, mesmo que ele só suba ao servidor mais tarde.
   Future<void> addItem(
     String listId, {
     required String name,
@@ -38,13 +41,41 @@ class ItemsService {
     String? unit,
     String? note,
   }) {
-    return _supabase.from('items').insert({
-      'id': _uuid.v4(),
-      'list_id': listId,
-      'name': name.trim(),
-      'quantity': quantity,
-      'unit': _emptyToNull(unit),
-      'note': _emptyToNull(note),
+    final id = _uuid.v4();
+    final now = _now().toUtc();
+    final cleanName = name.trim();
+    final cleanUnit = _emptyToNull(unit);
+    final cleanNote = _emptyToNull(note);
+
+    return _db.transaction(() async {
+      await _db.into(_db.localItems).insert(
+            LocalItemsCompanion.insert(
+              id: id,
+              listId: listId,
+              name: cleanName,
+              quantity: Value(quantity?.toDouble()),
+              unit: Value(cleanUnit),
+              note: Value(cleanNote),
+              createdBy: Value(_currentUserId()),
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+      await _db.enqueue(
+        table: 'items',
+        rowId: id,
+        isInsert: true,
+        fields: {
+          'id': id,
+          'list_id': listId,
+          'name': cleanName,
+          'quantity': quantity,
+          'unit': cleanUnit,
+          'note': cleanNote,
+          'checked': false,
+          'created_at': now.toIso8601String(),
+        },
+      );
     });
   }
 
@@ -55,23 +86,61 @@ class ItemsService {
     String? unit,
     String? note,
   }) {
-    return _supabase.from('items').update({
-      'name': name.trim(),
-      'quantity': quantity,
-      'unit': _emptyToNull(unit),
-      'note': _emptyToNull(note),
-    }).eq('id', id);
+    final cleanName = name.trim();
+    final cleanUnit = _emptyToNull(unit);
+    final cleanNote = _emptyToNull(note);
+
+    return _db.transaction(() async {
+      await (_db.update(_db.localItems)..where((i) => i.id.equals(id))).write(
+        LocalItemsCompanion(
+          name: Value(cleanName),
+          quantity: Value(quantity?.toDouble()),
+          unit: Value(cleanUnit),
+          note: Value(cleanNote),
+          updatedAt: Value(_now().toUtc()),
+        ),
+      );
+      await _db.enqueue(
+        table: 'items',
+        rowId: id,
+        isInsert: false,
+        fields: {
+          'name': cleanName,
+          'quantity': quantity,
+          'unit': cleanUnit,
+          'note': cleanNote,
+        },
+      );
+    });
   }
 
   Future<void> setChecked(String id, bool checked) {
-    return _supabase.from('items').update({'checked': checked}).eq('id', id);
+    return _db.transaction(() async {
+      await (_db.update(_db.localItems)..where((i) => i.id.equals(id))).write(
+        LocalItemsCompanion(checked: Value(checked), updatedAt: Value(_now().toUtc())),
+      );
+      await _db.enqueue(
+        table: 'items',
+        rowId: id,
+        isInsert: false,
+        fields: {'checked': checked},
+      );
+    });
   }
 
   Future<void> deleteItem(String id) {
-    return _supabase
-        .from('items')
-        .update({'deleted_at': DateTime.now().toUtc().toIso8601String()})
-        .eq('id', id);
+    final now = _now().toUtc();
+    return _db.transaction(() async {
+      await (_db.update(_db.localItems)..where((i) => i.id.equals(id))).write(
+        LocalItemsCompanion(deletedAt: Value(now), updatedAt: Value(now)),
+      );
+      await _db.enqueue(
+        table: 'items',
+        rowId: id,
+        isInsert: false,
+        fields: {'deleted_at': now.toIso8601String()},
+      );
+    });
   }
 
   String? _emptyToNull(String? s) {

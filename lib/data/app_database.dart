@@ -113,6 +113,11 @@ class AppDatabase extends _$AppDatabase {
   /// Banco de verdade (arquivo SQLite no celular).
   AppDatabase.open() : super(driftDatabase(name: 'lista_compras'));
 
+  static AppDatabase? _instance;
+
+  /// Instância única usada pelo app (aberta na primeira vez que for pedida).
+  static AppDatabase get instance => _instance ??= AppDatabase.open();
+
   @override
   int get schemaVersion => 1;
 

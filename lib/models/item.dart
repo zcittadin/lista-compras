@@ -1,3 +1,5 @@
+import '../data/app_database.dart';
+
 class Item {
   const Item({
     required this.id,
@@ -17,14 +19,14 @@ class Item {
   final String? unit;
   final String? note;
 
-  factory Item.fromMap(Map<String, dynamic> map) => Item(
-        id: map['id'] as String,
-        listId: map['list_id'] as String,
-        name: map['name'] as String,
-        checked: map['checked'] as bool,
-        quantity: map['quantity'] as num?,
-        unit: map['unit'] as String?,
-        note: map['note'] as String?,
+  factory Item.fromLocal(LocalItem row) => Item(
+        id: row.id,
+        listId: row.listId,
+        name: row.name,
+        checked: row.checked,
+        quantity: row.quantity,
+        unit: row.unit,
+        note: row.note,
       );
 
   /// A quantidade como texto ("2", "0.5"), ou "" se não houver.

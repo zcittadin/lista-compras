@@ -1,20 +1,32 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 
+import '../data/app_database.dart';
 import '../models/product.dart';
+import 'auth_service.dart';
 
 /// Catálogo pessoal de produtos (tabela `products`), usado no autocompletar.
 ///
-/// Diferente de listas e itens, o catálogo é só do usuário (a RLS usa
-/// `owner_id = auth.uid()`), então não precisa de Realtime: carregamos uma
-/// vez ao abrir a lista e mantemos uma cópia em memória.
+/// Local-first como listas e itens: lê do SQLite e mantém uma cópia em
+/// memória para as sugestões; mudanças vão para a fila de pendências.
+/// O catálogo é só do usuário (a RLS usa `owner_id = auth.uid()`).
 class ProductsService {
-  ProductsService._();
-  static final instance = ProductsService._();
+  ProductsService(
+    this._db, {
+    required this._currentUserId,
+    this._now = DateTime.now,
+  });
+
+  static final instance = ProductsService(
+    AppDatabase.instance,
+    currentUserId: () => AuthService.instance.currentUser?.id,
+  );
 
   static const _uuid = Uuid();
 
-  SupabaseClient get _supabase => Supabase.instance.client;
+  final AppDatabase _db;
+  final String? Function() _currentUserId;
+  final DateTime Function() _now;
 
   List<Product> _cache = [];
 
@@ -22,12 +34,10 @@ class ProductsService {
   List<Product> get products => _cache;
 
   Future<void> load() async {
-    final rows = await _supabase
-        .from('products')
-        .select()
-        .isFilter('deleted_at', null)
-        .order('name');
-    _cache = rows.map(Product.fromMap).toList();
+    final rows = await (_db.select(_db.localProducts)
+          ..where((p) => p.deletedAt.isNull()))
+        .get();
+    _cache = rows.map(Product.fromLocal).toList()..sort(_byName);
   }
 
   Product? find(String name) {
@@ -43,15 +53,13 @@ class ProductsService {
   /// Se já existe e veio uma unidade diferente da padrão, a unidade padrão é
   /// atualizada: a última unidade que você usou vira a sugestão. Unidade
   /// vazia nunca apaga a padrão.
-  ///
-  /// Para produtos novos, `ignoreDuplicates` vira `ON CONFLICT DO NOTHING`:
-  /// se o par (owner_id, name) já existe, o banco simplesmente não faz nada.
   Future<void> remember(String name, {String? unit}) async {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
 
     final cleanUnit = unit?.trim();
     final newUnit = (cleanUnit == null || cleanUnit.isEmpty) ? null : cleanUnit;
+    final now = _now().toUtc();
 
     final existing = find(trimmed);
     if (existing != null) {
@@ -63,20 +71,53 @@ class ProductsService {
           else
             p,
       ];
-      await _supabase
-          .from('products')
-          .update({'default_unit': newUnit}).eq('id', existing.id);
+      await _db.transaction(() async {
+        await (_db.update(_db.localProducts)..where((p) => p.id.equals(existing.id)))
+            .write(LocalProductsCompanion(
+          defaultUnit: Value(newUnit),
+          updatedAt: Value(now),
+        ));
+        await _db.enqueue(
+          table: 'products',
+          rowId: existing.id,
+          isInsert: false,
+          fields: {'default_unit': newUnit},
+        );
+      });
       return;
     }
 
+    final ownerId = _currentUserId();
+    if (ownerId == null) throw StateError('Nenhum usuário logado.');
     final product = Product(id: _uuid.v4(), name: trimmed, defaultUnit: newUnit);
-    _cache = [..._cache, product]
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    _cache = [..._cache, product]..sort(_byName);
 
-    await _supabase.from('products').upsert({
-      'id': product.id,
-      'name': product.name,
-      'default_unit': product.defaultUnit,
-    }, onConflict: 'owner_id,name', ignoreDuplicates: true);
+    await _db.transaction(() async {
+      await _db.into(_db.localProducts).insert(
+            LocalProductsCompanion.insert(
+              id: product.id,
+              ownerId: ownerId,
+              name: product.name,
+              defaultUnit: Value(newUnit),
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+      await _db.enqueue(
+        table: 'products',
+        rowId: product.id,
+        isInsert: true,
+        fields: {
+          'id': product.id,
+          'owner_id': ownerId,
+          'name': product.name,
+          'default_unit': newUnit,
+          'created_at': now.toIso8601String(),
+        },
+      );
+    });
   }
+
+  static int _byName(Product a, Product b) =>
+      a.name.toLowerCase().compareTo(b.name.toLowerCase());
 }

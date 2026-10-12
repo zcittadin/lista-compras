@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../data/app_database.dart';
+
 /// Categorias aceitas pelo banco (constraint em `lists.category`).
 enum ListCategory {
   mercado('mercado', 'Mercado', Icons.shopping_cart),
@@ -33,10 +35,10 @@ class ShoppingList {
   final String name;
   final ListCategory category;
 
-  factory ShoppingList.fromMap(Map<String, dynamic> map) => ShoppingList(
-        id: map['id'] as String,
-        ownerId: map['owner_id'] as String,
-        name: map['name'] as String,
-        category: ListCategory.fromValue(map['category'] as String?),
+  factory ShoppingList.fromLocal(LocalList row) => ShoppingList(
+        id: row.id,
+        ownerId: row.ownerId,
+        name: row.name,
+        category: ListCategory.fromValue(row.category),
       );
 }

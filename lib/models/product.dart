@@ -1,3 +1,5 @@
+import '../data/app_database.dart';
+
 class Product {
   const Product({required this.id, required this.name, this.defaultUnit});
 
@@ -5,9 +7,9 @@ class Product {
   final String name;
   final String? defaultUnit;
 
-  factory Product.fromMap(Map<String, dynamic> map) => Product(
-        id: map['id'] as String,
-        name: map['name'] as String,
-        defaultUnit: map['default_unit'] as String?,
+  factory Product.fromLocal(LocalProduct row) => Product(
+        id: row.id,
+        name: row.name,
+        defaultUnit: row.defaultUnit,
       );
 }

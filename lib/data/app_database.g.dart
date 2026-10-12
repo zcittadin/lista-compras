@@ -2458,6 +2458,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     outboxEntries,
     syncCursors,
   ];
+  @override
+  DriftDatabaseOptions get options =>
+      const DriftDatabaseOptions(storeDateTimeAsText: true);
 }
 
 typedef $$LocalListsTableCreateCompanionBuilder = LocalListsCompanion Function({

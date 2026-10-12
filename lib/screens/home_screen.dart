@@ -1,10 +1,10 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
+import '../data/app_database.dart';
 import '../models/shopping_list.dart';
 import '../services/auth_service.dart';
 import '../services/lists_service.dart';
+import '../services/sync_service.dart';
 import 'list_screen.dart';
 import 'members_screen.dart';
 
@@ -17,29 +17,38 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // Só é recriado quando as participações mudam (nunca a cada build, para não
-  // reabrir a conexão Realtime à toa).
-  Stream<List<ShoppingList>> _lists = ListsService.instance.watchLists();
-  StreamSubscription<String>? _memberships;
-  String? _stamp;
+  // Lê do banco local: não depende de internet. Criado uma vez só.
+  late final _lists = ListsService.instance.watchLists();
 
   @override
   void initState() {
     super.initState();
-    // Convidado ou removido de uma lista: reabre o stream para refletir isso.
-    _memberships = ListsService.instance.watchMembershipStamp().listen((stamp) {
-      final changed = _stamp != null && stamp != _stamp;
-      _stamp = stamp;
-      if (changed && mounted) {
-        setState(() => _lists = ListsService.instance.watchLists());
-      }
-    }, onError: (_) {});
+    SyncService.instance.start();
   }
 
-  @override
-  void dispose() {
-    _memberships?.cancel();
-    super.dispose();
+  /// Sair apaga o banco local. Se há mudanças que ainda não subiram ao
+  /// servidor, avisa antes: elas seriam perdidas.
+  Future<void> _signOut() async {
+    final db = AppDatabase.instance;
+    final unsent = (await db.pendingEntries()).length + (await db.failedEntries()).length;
+    if (unsent > 0 && mounted) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Sair mesmo assim?'),
+          content: Text(
+            '$unsent ${unsent == 1 ? 'alteração ainda não foi enviada' : 'alterações ainda não foram enviadas'} '
+            'ao servidor e ${unsent == 1 ? 'será perdida' : 'serão perdidas'} ao sair.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sair')),
+          ],
+        ),
+      );
+      if (ok != true) return;
+    }
+    await AuthService.instance.signOut();
   }
 
   @override
@@ -53,7 +62,7 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             tooltip: 'Sair',
             icon: const Icon(Icons.logout),
-            onPressed: () => AuthService.instance.signOut(),
+            onPressed: _signOut,
           ),
         ],
       ),

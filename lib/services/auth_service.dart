@@ -4,6 +4,8 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config.dart';
+import '../data/app_database.dart';
+import 'sync_service.dart';
 
 /// Login com a conta Google, usando o fluxo nativo do celular.
 ///
@@ -50,6 +52,10 @@ class AuthService {
   }
 
   Future<void> signOut() async {
+    // O banco local é de quem está logado: para a sincronização e limpa tudo
+    // para os dados não aparecerem para a próxima conta.
+    SyncService.instance.stop();
+    await AppDatabase.instance.clearAll();
     await _ensureInitialized();
     await _google.signOut();
     await _supabase.auth.signOut();

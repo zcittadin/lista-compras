@@ -1,62 +1,76 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 
+import '../data/app_database.dart';
 import '../models/shopping_list.dart';
+import 'auth_service.dart';
 
-/// Acesso às listas no Supabase.
+/// Listas, local-first: a tela lê e grava no SQLite do celular; cada
+/// mudança também entra na fila de pendências para subir ao Supabase.
 ///
-/// Realtime: `stream()` abre uma conexão WebSocket e emite a lista completa
-/// sempre que uma linha da tabela muda. A RLS continua valendo: o servidor
-/// só envia as listas que o usuário pode ver (as suas e as compartilhadas).
+/// Funciona sem internet. O que chega do servidor (outros membros, outros
+/// aparelhos) é copiado para o banco local pelo `SyncService`.
 ///
-/// Exclusão suave: apagar é gravar `deleted_at`; as telas filtram essas linhas.
+/// Exclusão suave: apagar é gravar `deleted_at`; a leitura filtra essas linhas.
 class ListsService {
-  ListsService._();
-  static final instance = ListsService._();
+  ListsService(
+    this._db, {
+    required this._currentUserId,
+    this._now = DateTime.now,
+  });
+
+  static final instance = ListsService(
+    AppDatabase.instance,
+    currentUserId: () => AuthService.instance.currentUser?.id,
+  );
 
   static const _uuid = Uuid();
 
-  SupabaseClient get _supabase => Supabase.instance.client;
+  final AppDatabase _db;
+  final String? Function() _currentUserId;
+  final DateTime Function() _now;
 
   Stream<List<ShoppingList>> watchLists() {
-    return _supabase
-        .from('lists')
-        .stream(primaryKey: ['id'])
-        .order('created_at')
-        .map(
-          (rows) => rows
-              .where((row) => row['deleted_at'] == null)
-              .map(ShoppingList.fromMap)
-              .toList(),
-        );
+    final query = _db.select(_db.localLists)
+      ..where((l) => l.deletedAt.isNull())
+      ..orderBy([(l) => OrderingTerm.asc(l.createdAt)]);
+    return query.watch().map((rows) => rows.map(ShoppingList.fromLocal).toList());
   }
 
-  /// Um "carimbo" das participações visíveis para o usuário (que muda quando
-  /// ele é convidado ou removido de uma lista).
-  ///
-  /// Convidar alguém só insere uma linha em `list_members`; a linha da lista
-  /// em `lists` não muda, então o stream de `watchLists()` não avisaria.
-  /// Quem usa `watchLists()` deve reabri-lo quando este carimbo mudar.
-  Stream<String> watchMembershipStamp() {
-    return _supabase
-        .from('list_members')
-        .stream(primaryKey: ['list_id', 'user_id'])
-        .map((rows) {
-          final keys = [for (final r in rows) '${r['list_id']}:${r['user_id']}']..sort();
-          return keys.join(',');
-        });
-  }
-
-  /// O id nasce no celular (UUID), como pede o plano do modo offline.
-  /// O `owner_id` vem do `auth.uid()` por padrão no banco.
+  /// O id nasce no celular (UUID), como pede o modo offline.
   Future<void> createList({
     required String name,
     required ListCategory category,
   }) {
-    return _supabase.from('lists').insert({
-      'id': _uuid.v4(),
-      'name': name.trim(),
-      'category': category.value,
+    final ownerId = _currentUserId();
+    if (ownerId == null) throw StateError('Nenhum usuário logado.');
+    final id = _uuid.v4();
+    final now = _now().toUtc();
+    final cleanName = name.trim();
+
+    return _db.transaction(() async {
+      await _db.into(_db.localLists).insert(
+            LocalListsCompanion.insert(
+              id: id,
+              ownerId: ownerId,
+              name: cleanName,
+              category: Value(category.value),
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+      await _db.enqueue(
+        table: 'lists',
+        rowId: id,
+        isInsert: true,
+        fields: {
+          'id': id,
+          'owner_id': ownerId,
+          'name': cleanName,
+          'category': category.value,
+          'created_at': now.toIso8601String(),
+        },
+      );
     });
   }
 
@@ -65,16 +79,36 @@ class ListsService {
     required String name,
     required ListCategory category,
   }) {
-    return _supabase
-        .from('lists')
-        .update({'name': name.trim(), 'category': category.value})
-        .eq('id', id);
+    final cleanName = name.trim();
+    return _db.transaction(() async {
+      await (_db.update(_db.localLists)..where((l) => l.id.equals(id))).write(
+        LocalListsCompanion(
+          name: Value(cleanName),
+          category: Value(category.value),
+          updatedAt: Value(_now().toUtc()),
+        ),
+      );
+      await _db.enqueue(
+        table: 'lists',
+        rowId: id,
+        isInsert: false,
+        fields: {'name': cleanName, 'category': category.value},
+      );
+    });
   }
 
   Future<void> deleteList(String id) {
-    return _supabase
-        .from('lists')
-        .update({'deleted_at': DateTime.now().toUtc().toIso8601String()})
-        .eq('id', id);
+    final now = _now().toUtc();
+    return _db.transaction(() async {
+      await (_db.update(_db.localLists)..where((l) => l.id.equals(id))).write(
+        LocalListsCompanion(deletedAt: Value(now), updatedAt: Value(now)),
+      );
+      await _db.enqueue(
+        table: 'lists',
+        rowId: id,
+        isInsert: false,
+        fields: {'deleted_at': now.toIso8601String()},
+      );
+    });
   }
 }
