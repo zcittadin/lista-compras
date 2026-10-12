@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lista_compras/screens/import_catalog_screen.dart';
 
+import '../support/mojibake.dart';
+
 Uint8List utf8Bytes(String text) => Uint8List.fromList(utf8.encode(text));
 
 class Harness {
@@ -132,6 +134,28 @@ void main() {
 
     expect(find.text('Açúcar'), findsOneWidget);
     expect(find.textContaining('Windows-1252'), findsOneWidget);
+  });
+
+  testWidgets('acentos corrompidos (UTF-8 lido como ANSI) são consertados e a tela avisa', (tester) async {
+    final h = Harness(tester);
+    await h.open(pickFile: () async => utf8Bytes(mojibake('nome;unidade\nBrócolis;un\nCafé;pct\nSal;kg')));
+
+    await h.chooseFile();
+
+    expect(find.text('3 produtos novos'), findsOneWidget);
+    expect(find.text('Brócolis'), findsOneWidget);
+    expect(find.text('Café'), findsOneWidget);
+    expect(find.textContaining('2 linhas tinham os acentos corrompidos'), findsOneWidget);
+    expect(find.textContaining('BrÃ'), findsNothing);
+  });
+
+  testWidgets('arquivo correto não mostra o aviso de acentos corrompidos', (tester) async {
+    final h = Harness(tester);
+    await h.open();
+
+    await h.paste('Brócolis\nCafé');
+
+    expect(find.textContaining('corrompidos'), findsNothing);
   });
 
   testWidgets('o que já existe no catálogo é ignorado, e dá para ver qual é', (tester) async {

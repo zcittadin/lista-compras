@@ -53,6 +53,35 @@ O app não lê `.xlsx` diretamente. Salve como CSV:
 Se o arquivo vier em "CSV" comum do Excel em português (codificação Windows-1252),
 o app reconhece e avisa na pré-visualização para você conferir os acentos.
 
+## Acentos estranhos ("CafÃ©", "BrÃ³colis")?
+
+Isso acontece quando alguma ferramenta (Excel, PowerShell...) lê o arquivo
+como ANSI e o salva de novo como UTF-8: o texto fica corrompido **dentro do
+arquivo**. O app reconhece esse defeito e conserta sozinho, linha a linha, e a
+pré-visualização avisa ("N linhas tinham os acentos corrompidos… foram
+corrigidas"). Confira a lista antes de importar.
+
+Para evitar o problema, não abra e salve o `.csv` no Excel: passe o arquivo
+como está (Drive, e-mail, USB). Se precisar editar, use um editor de texto
+(VS Code, Bloco de Notas) salvando em **UTF-8**.
+
+Se produtos com acento quebrado já entraram no catálogo (importados antes desse
+conserto), apague-os no Supabase (SQL Editor). Veja primeiro quais são e depois
+marque como apagados (troque o e-mail pelo da conta certa):
+
+```sql
+select p.name from public.products p
+join public.profiles u on u.id = p.owner_id
+where u.email = 'seu@email.com' and p.deleted_at is null and p.name ~ '[ÃÂ]';
+
+update public.products p set deleted_at = now()
+from public.profiles u
+where u.id = p.owner_id and u.email = 'seu@email.com'
+  and p.deleted_at is null and p.name ~ '[ÃÂ]';
+```
+
+Depois importe o arquivo de novo.
+
 ## Colar texto
 
 Em **Importar catálogo… → Colar texto** dá para colar uma lista (por exemplo, copiada

@@ -134,6 +134,12 @@ com o app fechado (WorkManager), participantes disponíveis offline, iOS.
   tudo numa transação e reconfere o banco. Unidades aceitam apelidos (`MeasureUnit.parse`:
   "quilos", "lt", "und.", "mt"...). Exportar: `buildCatalogCsv` (`nome;unidade`) para
   arquivo (UTF-8 com BOM, Excel-friendly) ou área de transferência; ida e volta testada.
+  Conserta sozinho acentos corrompidos por dupla codificação (UTF-8 lido como ANSI e
+  regravado: "CafÃ©"; aconteceu com o `catalogo_inicial.csv` do Zander no celular
+  dele, 2026-10-12): `CatalogParser.repairMojibake` desfaz linha a linha (caractere →
+  byte Windows-1252 → relê como UTF-8) e só aceita se o resultado for UTF-8 válido;
+  a pré-visualização avisa quantas linhas. Testado com o catálogo inicial inteiro
+  corrompido (`test/support/mojibake.dart`).
   O seletor de arquivo não filtra extensão (gerenciadores do Android escondem `.csv`).
   Guia do usuário em `docs/IMPORTAR_CATALOGO.md`; `docs/catalogo_inicial.csv` (~130
   produtos) é validado por teste.

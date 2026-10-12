@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lista_compras/services/catalog_import.dart';
 
+import '../support/mojibake.dart';
+
 CatalogPreview parse(String text, {List<String> existing = const []}) =>
     CatalogParser.parse(text, existingNames: existing);
 
@@ -70,6 +72,72 @@ void main() {
         () => CatalogParser.decode(big),
         throwsA(isA<CatalogImportException>().having((e) => e.message, 'message', contains('1 MB'))),
       );
+    });
+  });
+
+  group('acentos corrompidos (UTF-8 lido como ANSI e regravado)', () {
+    test('o próprio sintoma visto no celular: "BrÃ³colis" e "moÃda"', () {
+      // "í" vira "Ã" + hífen suave invisível (U+00AD), por isso "moÃda" na tela.
+      expect(mojibake('Brócolis'), 'BrÃ³colis');
+      expect(mojibake('Carne moída'), 'Carne moÃ­da');
+    });
+
+    test('repara nomes comuns', () {
+      for (final original in ['Café', 'Brócolis', 'Camarão', 'Carne moída', 'Linguiça', 'Maçã', 'Água', 'Pão de queijo']) {
+        final fixed = CatalogParser.repairMojibake(mojibake(original));
+        expect(fixed.text, original, reason: original);
+        expect(fixed.lines, 1);
+      }
+    });
+
+    test('repara também emojis e travessões que passaram pela corrupção', () {
+      expect(CatalogParser.repairMojibake(mojibake('Café ☕')).text, 'Café ☕');
+      expect(CatalogParser.repairMojibake(mojibake('Arroz 🍚')).text, 'Arroz 🍚');
+      expect(CatalogParser.repairMojibake(mojibake('Pão – integral')).text, 'Pão – integral');
+    });
+
+    test('texto correto não é tocado, inclusive com emoji e com Ã/Â legítimos', () {
+      for (final ok in ['Maçã', 'Arroz 🍚', 'PÃO DE FORMA', 'FEIJÃO', 'Ãgua', 'Âmbar', 'Açúcar e Café']) {
+        final r = CatalogParser.repairMojibake(ok);
+        expect(r.text, ok, reason: ok);
+        expect(r.lines, 0, reason: ok);
+      }
+    });
+
+    test('linha a linha: o arquivo misto aproveita o que dá', () {
+      final text = ['nome;unidade', mojibake('Café;pct'), 'Arroz 🍚;kg', mojibake('Feijão;kg')].join('\n');
+      final fixed = CatalogParser.repairMojibake(text);
+      expect(fixed.text, 'nome;unidade\nCafé;pct\nArroz 🍚;kg\nFeijão;kg');
+      expect(fixed.lines, 2);
+    });
+
+    test('o conserto vale no parse e a pré-visualização diz quantas linhas foram corrigidas', () {
+      final p = parse(mojibake('nome;unidade\nCafé;pct\nBrócolis;un\nSal;kg'));
+      expect(names(p.toImport), ['Café', 'Brócolis', 'Sal']);
+      expect(p.repairedLines, 2);
+      expect(parse('nome;unidade\nCafé;pct').repairedLines, 0);
+    });
+
+    test('depois de consertado, "Café" já existente é reconhecido (não vira outro produto)', () {
+      final p = parse(mojibake('Café'), existing: ['Café ☕']);
+      expect(p.toImport, isEmpty);
+      expect(p.alreadyExist.single.name, 'Café');
+    });
+
+    test('arquivo em bytes: UTF-8 válido com texto corrompido dentro também é consertado', () {
+      final bytes = Uint8List.fromList(utf8.encode(mojibake('nome;unidade\nCamarão;kg')));
+      final decoded = CatalogParser.decode(bytes);
+      expect(decoded.legacyEncoding, isFalse); // o arquivo É UTF-8 válido
+      expect(names(parse(decoded.text).toImport), ['Camarão']);
+    });
+
+    test('Windows-1252 de verdade continua sendo lido pelo caminho antigo, sem "conserto"', () {
+      final bytes = Uint8List.fromList([0x43, 0x61, 0x66, 0xE9]); // "Café" em ANSI
+      final decoded = CatalogParser.decode(bytes);
+      final p = CatalogParser.parse(decoded.text, legacyEncoding: decoded.legacyEncoding);
+      expect(names(p.toImport), ['Café']);
+      expect(p.legacyEncoding, isTrue);
+      expect(p.repairedLines, 0);
     });
   });
 

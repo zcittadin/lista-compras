@@ -81,6 +81,7 @@ class CatalogPreview {
     required this.hadHeader,
     required this.delimiter,
     required this.legacyEncoding,
+    this.repairedLines = 0,
   });
 
   final List<ImportEntry> entries;
@@ -93,6 +94,10 @@ class CatalogPreview {
 
   /// O arquivo não era UTF-8 e foi lido como Windows-1252 (o "ANSI" do Excel).
   final bool legacyEncoding;
+
+  /// Quantas linhas tinham os acentos corrompidos (UTF-8 lido como ANSI e
+  /// regravado, "CafÃ©") e foram consertadas automaticamente.
+  final int repairedLines;
 
   List<ImportEntry> _with(EntryStatus s) => entries.where((e) => e.status == s).toList();
 
@@ -211,6 +216,8 @@ class CatalogParser {
     Iterable<String> existingNames = const [],
     bool legacyEncoding = false,
   }) {
+    final repaired = repairMojibake(text);
+    text = repaired.text;
     final delimiter = _detectDelimiter(text);
     final rows = _readRows(text, delimiter);
 
@@ -289,7 +296,51 @@ class CatalogParser {
       hadHeader: hadHeader,
       delimiter: delimiter,
       legacyEncoding: legacyEncoding,
+      repairedLines: repaired.lines,
     );
+  }
+
+  /// Conserta texto cujos acentos foram corrompidos pela dupla codificação
+  /// mais comum: o arquivo era UTF-8, alguma ferramenta (Excel, PowerShell...)
+  /// o leu como Windows-1252 e o regravou como UTF-8. "Café" vira "CafÃ©".
+  ///
+  /// O conserto desfaz o caminho: cada caractere volta ao byte que o gerou e
+  /// os bytes são relidos como UTF-8. Só vale se o resultado for UTF-8
+  /// VÁLIDO, o que praticamente nunca acontece por acaso em texto normal
+  /// ("PÃO" vira bytes C3 4F, que não são UTF-8, e fica como está). É feito
+  /// linha a linha, então um arquivo parcialmente corrompido também é aproveitado.
+  static ({String text, int lines}) repairMojibake(String text) {
+    // Só vale a pena tentar se há uma letra que possa ser a abertura de uma sequência
+    // UTF-8 lida como Windows-1252 (bytes C2 a F4: de Â a ô).
+    if (!text.contains(_utf8Lead)) return (text: text, lines: 0);
+
+    var repairedLines = 0;
+    final lines = text.split('\n').map((line) {
+      if (!line.contains(_utf8Lead)) return line;
+      final fixed = _undoMojibake(line);
+      if (fixed == null || fixed == line) return line;
+      repairedLines++;
+      return fixed;
+    }).toList();
+    return (text: lines.join('\n'), lines: repairedLines);
+  }
+
+  static final _utf8Lead = RegExp('[Â-ô]');
+
+  static final Map<int, int> _cp1252Reverse = {for (final e in _cp1252.entries) e.value: e.key};
+
+  static String? _undoMojibake(String line) {
+    final bytes = <int>[];
+    for (final rune in line.runes) {
+      final byte = _cp1252Reverse[rune] ?? (rune <= 0xFF ? rune : null);
+      if (byte == null) return null; // tem caractere que não vem de Windows-1252: não é este caso
+      bytes.add(byte);
+    }
+    try {
+      return utf8.decode(bytes);
+    } on FormatException {
+      return null;
+    }
   }
 
   /// Tira caracteres de controle, junta espaços repetidos e apara as pontas.

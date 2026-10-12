@@ -262,6 +262,13 @@ class _ImportCatalogScreenState extends State<ImportCatalogScreen> {
                 _note(Icons.help_outline,
                     '${preview.unknownUnits.length} com unidade não reconhecida (entram sem unidade)'),
               if (preview.hadHeader) _note(Icons.table_rows_outlined, 'A primeira linha foi usada como cabeçalho'),
+              if (preview.repairedLines > 0)
+                _note(
+                  Icons.build_circle_outlined,
+                  '${preview.repairedLines} ${plural(preview.repairedLines, 'linha tinha', 'linhas tinham')} os acentos '
+                  'corrompidos (UTF-8 lido como ANSI) e ${plural(preview.repairedLines, 'foi corrigida', 'foram corrigidas')} '
+                  'automaticamente. Confira a lista.',
+                ),
               if (preview.legacyEncoding)
                 _note(
                   Icons.warning_amber,
