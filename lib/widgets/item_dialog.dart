@@ -1,0 +1,132 @@
+import 'package:flutter/material.dart';
+
+import '../models/item.dart';
+import '../models/measure_unit.dart';
+
+typedef ItemFormResult = ({String name, num? quantity, String? unit, String? note});
+
+/// Diálogo de cadastro (novo item) e edição. Devolve um [ItemFormResult], ou
+/// `null` se o usuário cancelar.
+class ItemDialog extends StatefulWidget {
+  const ItemDialog({super.key, required this.item, required this.isNew});
+
+  final Item item;
+  final bool isNew;
+
+  @override
+  State<ItemDialog> createState() => _ItemDialogState();
+}
+
+class _ItemDialogState extends State<ItemDialog> {
+  late final _name = TextEditingController(text: widget.item.name);
+  late final _quantity = TextEditingController(text: widget.item.quantityText);
+  late final _note = TextEditingController(text: widget.item.note);
+
+  /// Símbolo escolhido, ou `null` para "sem unidade". Uma unidade antiga que
+  /// não está no enum (texto livre de antes) é mantida como veio.
+  late String? _unit = _initialUnit(widget.item.unit);
+
+  static String? _initialUnit(String? stored) {
+    final text = stored?.trim();
+    if (text == null || text.isEmpty) return null;
+    return MeasureUnit.display(text);
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _quantity.dispose();
+    _note.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _name.text.trim();
+    if (name.isEmpty) return;
+    // Aceita vírgula decimal (teclado brasileiro).
+    final quantity = num.tryParse(_quantity.text.trim().replaceAll(',', '.'));
+    Navigator.pop(context, (
+      name: name,
+      quantity: quantity,
+      unit: _unit,
+      note: _note.text,
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final current = _unit;
+    // Valores possíveis: nenhum, as unidades do enum e, se houver, a unidade
+    // antiga do item (para não ser perdida ao editar).
+    final legacy = current != null && MeasureUnit.parse(current) == null ? current : null;
+    final options = <String?>[
+      null,
+      for (final u in MeasureUnit.values) u.symbol,
+      ?legacy,
+    ];
+
+    String describe(String? symbol) {
+      if (symbol == null) return 'Sem unidade';
+      final unit = MeasureUnit.parse(symbol);
+      return unit == null ? symbol : '${unit.symbol} · ${unit.label}';
+    }
+
+    return AlertDialog(
+      title: Text(widget.isNew ? 'Novo item' : 'Editar item'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _name,
+              maxLength: 120,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(labelText: 'Nome'),
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _quantity,
+                    autofocus: widget.isNew,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(labelText: 'Quantidade'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: DropdownButtonFormField<String?>(
+                    initialValue: _unit,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: 'Unidade'),
+                    items: [
+                      for (final o in options)
+                        DropdownMenuItem<String?>(
+                          value: o,
+                          child: Text(describe(o), overflow: TextOverflow.ellipsis),
+                        ),
+                    ],
+                    // No campo fechado, só o símbolo (a descrição completa só
+                    // cabe na lista aberta).
+                    selectedItemBuilder: (_) => [
+                      for (final o in options) Text(o ?? '—'),
+                    ],
+                    onChanged: (value) => _unit = value,
+                  ),
+                ),
+              ],
+            ),
+            TextField(
+              controller: _note,
+              decoration: const InputDecoration(labelText: 'Observação'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+        FilledButton(onPressed: _submit, child: const Text('Salvar')),
+      ],
+    );
+  }
+}

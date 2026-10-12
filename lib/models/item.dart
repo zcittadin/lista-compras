@@ -1,4 +1,5 @@
 import '../data/app_database.dart';
+import 'measure_unit.dart';
 
 class Item {
   const Item({
@@ -40,7 +41,9 @@ class Item {
   /// não faz sentido na listagem).
   String get quantityLabel {
     if (quantity == null) return '';
-    final hasUnit = unit != null && unit!.isNotEmpty;
-    return hasUnit ? '$quantityText $unit' : quantityText;
+    final text = unit?.trim();
+    if (text == null || text.isEmpty) return quantityText;
+    // Unidades antigas ("Kg") aparecem padronizadas ("kg").
+    return '$quantityText ${MeasureUnit.display(text)}';
   }
 }

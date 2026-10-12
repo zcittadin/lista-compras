@@ -8,6 +8,7 @@ import '../models/shopping_list.dart';
 import '../services/items_service.dart';
 import '../services/lists_service.dart';
 import '../services/products_service.dart';
+import '../widgets/item_dialog.dart';
 import '../widgets/sync_status_banner.dart';
 import 'members_screen.dart';
 
@@ -88,9 +89,9 @@ class _ListScreenState extends State<ListScreen> {
       checked: false,
       unit: _products.find(name)?.defaultUnit,
     );
-    final result = await showDialog<_ItemFormResult>(
+    final result = await showDialog<ItemFormResult>(
       context: context,
-      builder: (_) => _ItemDialog(item: draft, isNew: true),
+      builder: (_) => ItemDialog(item: draft, isNew: true),
     );
     if (result == null) return;
     await _run(() async {
@@ -106,9 +107,9 @@ class _ListScreenState extends State<ListScreen> {
   }
 
   Future<void> _edit(Item item) async {
-    final result = await showDialog<_ItemFormResult>(
+    final result = await showDialog<ItemFormResult>(
       context: context,
-      builder: (_) => _ItemDialog(item: item, isNew: false),
+      builder: (_) => ItemDialog(item: item, isNew: false),
     );
     if (result == null) return;
     await _run(() async {
@@ -287,94 +288,6 @@ class _ItemTile extends StatelessWidget {
         subtitle: details.isEmpty ? null : Text(details),
         onTap: onEdit,
       ),
-    );
-  }
-}
-
-typedef _ItemFormResult = ({String name, num? quantity, String? unit, String? note});
-
-class _ItemDialog extends StatefulWidget {
-  const _ItemDialog({required this.item, required this.isNew});
-
-  final Item item;
-  final bool isNew;
-
-  @override
-  State<_ItemDialog> createState() => _ItemDialogState();
-}
-
-class _ItemDialogState extends State<_ItemDialog> {
-  late final _name = TextEditingController(text: widget.item.name);
-  late final _quantity = TextEditingController(text: widget.item.quantityText);
-  late final _unit = TextEditingController(text: widget.item.unit);
-  late final _note = TextEditingController(text: widget.item.note);
-
-  @override
-  void dispose() {
-    _name.dispose();
-    _quantity.dispose();
-    _unit.dispose();
-    _note.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    final name = _name.text.trim();
-    if (name.isEmpty) return;
-    // Aceita vírgula decimal (teclado brasileiro).
-    final quantity = num.tryParse(_quantity.text.trim().replaceAll(',', '.'));
-    Navigator.pop(context, (
-      name: name,
-      quantity: quantity,
-      unit: _unit.text,
-      note: _note.text,
-    ));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.isNew ? 'Novo item' : 'Editar item'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _name,
-              maxLength: 120,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(labelText: 'Nome'),
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _quantity,
-                    autofocus: widget.isNew,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(labelText: 'Quantidade'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextField(
-                    controller: _unit,
-                    decoration: const InputDecoration(labelText: 'Unidade', hintText: 'kg, un, L'),
-                  ),
-                ),
-              ],
-            ),
-            TextField(
-              controller: _note,
-              decoration: const InputDecoration(labelText: 'Observação'),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
-        FilledButton(onPressed: _submit, child: const Text('Salvar')),
-      ],
     );
   }
 }

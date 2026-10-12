@@ -98,6 +98,11 @@ disponíveis offline, iOS.
 - **Itens:** adicionar abre o diálogo "Novo item" (nome, quantidade, unidade,
   observação); cancelar não cria o item. Sem quantidade, quantidade+unidade ficam
   ocultas na lista. A unidade padrão de cada produto no catálogo é a última usada.
+  A unidade é escolhida num dropdown (`MeasureUnit` em `lib/models/measure_unit.dart`:
+  un, kg, g, L, mL, dz, pct, cx, m); no banco continua texto (grava-se o símbolo), então
+  incluir unidades não exige migração. Unidades antigas digitadas à mão são
+  padronizadas se reconhecidas ("Kg" vira "kg") e preservadas se não ("lata").
+  O diálogo é `lib/widgets/item_dialog.dart`.
   O catálogo `products` é lido do banco local ao abrir uma lista (é pessoal, sem Realtime).
 - **Compartilhamento:** tela de participantes (`members_screen.dart`), acessível
   pelo ícone de grupo na lista e pelo menu de três pontinhos na tela inicial
