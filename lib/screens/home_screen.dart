@@ -4,7 +4,9 @@ import '../data/app_database.dart';
 import '../models/shopping_list.dart';
 import '../services/auth_service.dart';
 import '../services/lists_service.dart';
+import '../services/members_service.dart';
 import '../services/sync_service.dart';
+import '../widgets/shared_lists_notice.dart';
 import '../widgets/sync_status_banner.dart';
 import 'list_screen.dart';
 import 'members_screen.dart';
@@ -21,6 +23,12 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   // Lê do banco local: não depende de internet. Criado uma vez só.
   late final _lists = ListsService.instance.watchLists();
+  late final _newlyShared = ListsService.instance.watchNewlyShared();
+
+  void _openList(ShoppingList list) => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => ListScreen(list: list)),
+      );
 
   @override
   void initState() {
@@ -92,6 +100,15 @@ class _HomeScreenState extends State<HomeScreen> {
       body: Column(
         children: [
           const SyncStatusBanner(),
+          StreamBuilder<List<ShoppingList>>(
+            stream: _newlyShared,
+            builder: (context, snapshot) => SharedListsNotice(
+              lists: snapshot.data ?? const [],
+              ownerName: MembersService.instance.displayName,
+              onOpen: _openList, // abrir a lista já a marca como vista
+              onDismiss: (list) => ListsService.instance.markSeen([list.id]),
+            ),
+          ),
           Expanded(
             child: StreamBuilder<List<ShoppingList>>(
               stream: _lists,
@@ -153,12 +170,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ],
                         ],
                       ),
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => ListScreen(list: list),
-                        ),
-                      ),
+                      onTap: () => _openList(list),
                     );
                   },
                 );

@@ -97,6 +97,18 @@ Detalhes dos formatos em [IMPORTAR_CATALOGO.md](IMPORTAR_CATALOGO.md).
 7. Importe com internet desligada: a faixa mostra as alterações pendentes e tudo
    sobe ao reconectar (em poucas requisições, não uma por produto).
 
+## 9. Aviso de lista compartilhada e WhatsApp
+
+1. Em A, convide B para uma lista. Aparece o diálogo "Lista compartilhada" com
+   **Avisar pelo WhatsApp**: ele abre o WhatsApp com a mensagem pronta (escolha o
+   contato). Teste também **Agora não**.
+2. Em B (app aberto ou ao abrir), aparece no topo da tela inicial o cartão
+   "Nova lista compartilhada: ..." com o nome de A.
+3. Tocar no cartão abre a lista e o aviso some; em outra lista, o **X** dispensa.
+   Fechar e abrir o app: o aviso não volta.
+4. Em A, remova B e convide de novo: o aviso volta a aparecer em B.
+5. Listas que B já tinha antes desta versão do app não geram aviso.
+
 ## Se algo falhar
 
 O Debug Console (com o celular conectado e `flutter run`) mostra linhas

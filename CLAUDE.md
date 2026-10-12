@@ -156,6 +156,19 @@ com o app fechado (WorkManager), participantes disponíveis offline, iOS.
   Realtime de `list_members` também dispara a busca de listas e itens. Quem é
   removido (ou tem a lista apagada) com a lista aberta volta sozinho para a tela
   inicial (`ListsService.watchList` emite `null`).
+- **Aviso de lista compartilhada (sem push):** cartão no topo da tela inicial
+  (`SharedListsNotice`) para listas de outras pessoas ainda não vistas
+  (`ListsService.watchNewlyShared`/`markSeen`); abrir a lista ou tocar no X marca como
+  vista. Os IDs vistos ficam em `SyncCursors` (chave `seen_shared_lists`, sem migração);
+  no primeiro uso as compartilhadas existentes contam como vistas; listas que somem são
+  esquecidas (se compartilhada de novo, avisa de novo). Nome de quem compartilhou via
+  `MembersService.displayName` (profiles, cache em memória; offline aparece sem nome).
+  Depois de convidar, o dono pode **avisar pelo WhatsApp**: link `wa.me` com texto
+  pronto (`lib/utils/whatsapp.dart`, `url_launcher`; `<queries>` para https no
+  AndroidManifest); o próprio usuário envia, nada é automático.
+  **Etapa futura combinada:** notificação push com FCM (Firebase + Database Webhook +
+  Edge Function), a planejar quando o Zander pedir. WhatsApp automático (API da Meta) e
+  e-mail foram descartados.
 
 ## Ambiente do Zander
 

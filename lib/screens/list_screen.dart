@@ -36,6 +36,8 @@ class _ListScreenState extends State<ListScreen> {
   void initState() {
     super.initState();
     _listSub = ListsService.instance.watchList(widget.list.id).listen(_onListChanged);
+    // Abrir a lista conta como "vi" para o aviso de lista compartilhada.
+    ListsService.instance.markSeen([widget.list.id]);
     // Sem catálogo o app continua funcionando, só sem sugestões.
     _products.load().then((_) => null, onError: (_) => null);
   }

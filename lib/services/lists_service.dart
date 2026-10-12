@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 
@@ -45,6 +47,67 @@ class ListsService {
     return query.watchSingleOrNull().map(
           (row) => row == null ? null : ShoppingList.fromLocal(row),
         );
+  }
+
+  // -------------------------------------------------------------------
+  // Aviso de "lista compartilhada com você"
+  // -------------------------------------------------------------------
+
+  /// Chave (em `SyncCursors`) com os IDs das listas compartilhadas que o
+  /// usuário já viu. Guardar ali evita uma migração de esquema, e o
+  /// `clearAll` da troca de conta já a apaga junto.
+  static const _seenKey = 'seen_shared_lists';
+
+  /// Listas de OUTRAS pessoas compartilhadas com o usuário que ele ainda não
+  /// viu (nem abriu, nem dispensou o aviso), na ordem em que foram criadas.
+  ///
+  /// Na primeira vez (instalação que já tinha listas), todas as compartilhadas
+  /// existentes contam como vistas: o aviso é só para o que chegar depois.
+  Stream<List<ShoppingList>> watchNewlyShared() {
+    // Reavalia sempre que as listas ou os marcos mudam.
+    return _db
+        .customSelect('SELECT 1', readsFrom: {_db.localLists, _db.syncCursors})
+        .watch()
+        .asyncMap((_) => _newlyShared());
+  }
+
+  Future<List<ShoppingList>> _newlyShared() async {
+    final me = _currentUserId();
+    if (me == null) return const [];
+
+    final shared = await (_db.select(_db.localLists)
+          ..where((l) => l.deletedAt.isNull() & l.ownerId.equals(me).not())
+          ..orderBy([(l) => OrderingTerm.asc(l.createdAt)]))
+        .get();
+    final sharedIds = {for (final l in shared) l.id};
+
+    final stored = await _db.getCursor(_seenKey);
+    if (stored == null) {
+      await _db.setCursor(_seenKey, jsonEncode(sharedIds.toList()));
+      return const [];
+    }
+
+    final seen = {for (final id in jsonDecode(stored) as List) id as String};
+    // Esquece listas que sumiram (acesso removido, lista apagada): se ela for
+    // compartilhada de novo no futuro, o aviso volta a aparecer.
+    final kept = seen.intersection(sharedIds);
+    if (kept.length != seen.length) {
+      await _db.setCursor(_seenKey, jsonEncode(kept.toList()));
+    }
+    return [
+      for (final l in shared)
+        if (!kept.contains(l.id)) ShoppingList.fromLocal(l),
+    ];
+  }
+
+  /// Marca como vistas (ao abrir a lista ou dispensar o aviso).
+  Future<void> markSeen(Iterable<String> ids) async {
+    final stored = await _db.getCursor(_seenKey);
+    final seen = stored == null
+        ? <String>{}
+        : {for (final id in jsonDecode(stored) as List) id as String};
+    if (seen.containsAll(ids)) return;
+    await _db.setCursor(_seenKey, jsonEncode({...seen, ...ids}.toList()));
   }
 
   /// O id nasce no celular (UUID), como pede o modo offline.

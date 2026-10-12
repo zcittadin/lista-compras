@@ -5,6 +5,7 @@ import '../models/member.dart';
 import '../models/shopping_list.dart';
 import '../services/auth_service.dart';
 import '../services/members_service.dart';
+import '../utils/whatsapp.dart';
 
 /// Quem participa da lista. O dono convida e remove; os demais podem sair.
 class MembersScreen extends StatefulWidget {
@@ -48,11 +49,42 @@ class _MembersScreenState extends State<MembersScreen> {
     try {
       await MembersService.instance.share(widget.list.id, email);
       _email.clear();
-      if (mounted) _toast('$email agora participa da lista.');
+      if (mounted) await _offerWhatsApp(email);
     } catch (e) {
       if (mounted) _toast(_errorText(e));
     } finally {
       if (mounted) setState(() => _inviting = false);
+    }
+  }
+
+  /// Depois de convidar, oferece avisar a pessoa pelo WhatsApp (o próprio
+  /// usuário envia a mensagem pronta; o app não manda nada sozinho).
+  Future<void> _offerWhatsApp(String email) async {
+    final send = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.check_circle_outline),
+        title: const Text('Lista compartilhada'),
+        content: Text(
+          '$email agora participa de "${widget.list.name}". '
+          'Quer avisar pelo WhatsApp?',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Agora não')),
+          FilledButton.icon(
+            icon: const Icon(Icons.chat),
+            label: const Text('Avisar pelo WhatsApp'),
+            onPressed: () => Navigator.pop(ctx, true),
+          ),
+        ],
+      ),
+    );
+    if (send != true) return;
+    try {
+      final opened = await openWhatsApp(shareNoticeText(widget.list.name));
+      if (!opened && mounted) _toast('Não foi possível abrir o WhatsApp.');
+    } catch (_) {
+      if (mounted) _toast('Não foi possível abrir o WhatsApp.');
     }
   }
 

@@ -43,6 +43,29 @@ class MembersService {
         });
   }
 
+  final _names = <String, String>{};
+
+  /// Nome (ou e-mail) de um usuário com quem se divide alguma lista, para o
+  /// aviso "Fulano compartilhou...". Fica em memória depois da primeira busca.
+  /// Sem conexão ou sem permissão, devolve `null` (o aviso aparece sem o nome).
+  Future<String?> displayName(String userId) async {
+    final cached = _names[userId];
+    if (cached != null) return cached;
+    try {
+      final row = await _supabase
+          .from('profiles')
+          .select('email, full_name')
+          .eq('id', userId)
+          .maybeSingle();
+      if (row == null) return null;
+      final fullName = row['full_name'] as String?;
+      final name = (fullName != null && fullName.trim().isNotEmpty) ? fullName : row['email'] as String;
+      return _names[userId] = name;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Convida pelo e-mail chamando a função SQL `share_list` (RPC).
   ///
   /// A função confere no servidor se quem chama é o dono e se o e-mail
