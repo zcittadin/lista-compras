@@ -80,6 +80,26 @@ void main() {
       expect(payloadOf(left)['checked'], true);
     });
 
+    test('após o envio, só o que mudou durante ele continua na fila', () async {
+      await db.enqueue(table: 'items', rowId: 'i1', isInsert: true, fields: {'name': 'Pão', 'checked': false});
+      final inFlight = (await db.pendingEntries()).single;
+
+      await db.enqueue(table: 'items', rowId: 'i1', isInsert: false, fields: {'checked': true, 'name': 'Pão'});
+      await db.markSent(inFlight);
+
+      expect(payloadOf((await db.pendingEntries()).single), {'checked': true});
+    });
+
+    test('se a edição durante o envio não mudou nada, a entrada some', () async {
+      await db.enqueue(table: 'items', rowId: 'i1', isInsert: true, fields: {'name': 'Pão'});
+      final inFlight = (await db.pendingEntries()).single;
+
+      await db.enqueue(table: 'items', rowId: 'i1', isInsert: false, fields: {'name': 'Pão'});
+      await db.markSent(inFlight);
+
+      expect(await db.pendingEntries(), isEmpty);
+    });
+
     test('falha permanente tira a entrada da fila de envio', () async {
       await db.enqueue(table: 'items', rowId: 'i1', isInsert: true, fields: {'name': 'Pão'});
       final entry = (await db.pendingEntries()).single;

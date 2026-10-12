@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
@@ -125,6 +126,18 @@ class AppDatabase extends _$AppDatabase {
   // Fila de pendências
   // -------------------------------------------------------------------
 
+  final _enqueued = StreamController<void>.broadcast();
+
+  /// Emite sempre que uma mudança entra na fila (o `SyncService` ouve isto
+  /// para enviar logo depois de cada alteração do usuário).
+  Stream<void> get onEnqueued => _enqueued.stream;
+
+  @override
+  Future<void> close() async {
+    await _enqueued.close();
+    return super.close();
+  }
+
   /// Registra uma mudança para subir depois, fundindo com a entrada que já
   /// existir para a mesma linha. [fields] usa os nomes das colunas do servidor.
   ///
@@ -149,6 +162,7 @@ class AppDatabase extends _$AppDatabase {
             payload: jsonEncode(fields),
           ),
         );
+        _enqueued.add(null);
         return;
       }
 
@@ -168,6 +182,7 @@ class AppDatabase extends _$AppDatabase {
           lastError: const Value(null),
         ),
       );
+      _enqueued.add(null);
     });
   }
 
@@ -214,17 +229,34 @@ class AppDatabase extends _$AppDatabase {
   /// Chamar após enviar [entry] com sucesso.
   ///
   /// Se a entrada foi editada durante o envio (revisão diferente), ela fica
-  /// na fila como 'update': o servidor já tem a linha, falta só o resto.
+  /// na fila como 'update' com SÓ o que mudou depois do envio: o servidor já
+  /// tem a linha e os campos enviados, e reenviá-los poderia sobrescrever uma
+  /// edição que outra pessoa fez nesse meio tempo.
   Future<void> markSent(OutboxEntry entry) {
     return transaction(() async {
       final deleted = await (delete(outboxEntries)
             ..where((e) => e.id.equals(entry.id) & e.revision.equals(entry.revision)))
           .go();
-      if (deleted == 0) {
-        await (update(outboxEntries)..where((e) => e.id.equals(entry.id))).write(
-          const OutboxEntriesCompanion(op: Value('update')),
-        );
+      if (deleted > 0) return;
+
+      final current = await (select(outboxEntries)..where((e) => e.id.equals(entry.id)))
+          .getSingleOrNull();
+      if (current == null) return;
+
+      final sent = jsonDecode(entry.payload) as Map<String, dynamic>;
+      final now = jsonDecode(current.payload) as Map<String, dynamic>;
+      final remaining = {
+        for (final f in now.entries)
+          if (!sent.containsKey(f.key) || sent[f.key] != f.value) f.key: f.value,
+      };
+
+      if (remaining.isEmpty) {
+        await (delete(outboxEntries)..where((e) => e.id.equals(entry.id))).go();
+        return;
       }
+      await (update(outboxEntries)..where((e) => e.id.equals(entry.id))).write(
+        OutboxEntriesCompanion(op: const Value('update'), payload: Value(jsonEncode(remaining))),
+      );
     });
   }
 

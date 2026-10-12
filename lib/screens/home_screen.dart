@@ -30,6 +30,12 @@ class _HomeScreenState extends State<HomeScreen> {
   /// servidor, avisa antes: elas seriam perdidas.
   Future<void> _signOut() async {
     final db = AppDatabase.instance;
+    // Com internet, o que estiver pendente sobe agora e o aviso nem aparece.
+    // Sem internet, não vale esperar muito.
+    await SyncService.instance.push().timeout(
+          const Duration(seconds: 5),
+          onTimeout: () {},
+        );
     final unsent = (await db.pendingEntries()).length + (await db.failedEntries()).length;
     if (unsent > 0 && mounted) {
       final ok = await showDialog<bool>(
