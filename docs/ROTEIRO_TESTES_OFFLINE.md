@@ -65,6 +65,21 @@ Em modo avião, abra Participantes: mensagem "Sem conexão…" com botão
 2. Cancele, volte a ter internet, espere enviar e saia. Entre com **outra**
    conta: nada da conta anterior pode aparecer.
 
+## 7. Catálogo de produtos
+
+1. Ícone de caixa na tela inicial → **Catálogo de produtos**.
+2. Crie, edite (nome e unidade) e apague por arraste; use **Desfazer** logo após apagar.
+3. Tente criar/renomear para um nome que já existe (mesmo com outra caixa ou com
+   emoji, ex. "arroz" × "Arroz" × "Arroz 🍚"): o diálogo avisa, cita o produto
+   que já existe e continua aberto.
+4. Apague "Arroz" do catálogo e adicione um item "Arroz" numa lista: o produto
+   volta ao catálogo.
+5. Em modo avião, edite o catálogo: a faixa mostra as alterações pendentes e
+   tudo sobe ao reconectar. (Com o mesmo usuário em dois celulares, a mudança
+   aparece no outro ao abri-lo ou voltar ao app.)
+6. A busca ignora acentos ("acucar" acha "Açúcar") e a ordem alfabética
+   também (Açúcar antes de Arroz).
+
 ## Se algo falhar
 
 O Debug Console (com o celular conectado e `flutter run`) mostra linhas

@@ -20,7 +20,7 @@ funcionamento sem internet.
 
 ## Testes
 
-- `flutter analyze` e `flutter test` (90 testes, sem rede nem celular).
+- `flutter analyze` e `flutter test` (sem rede nem celular).
 - Roteiro manual com dois celulares: [docs/ROTEIRO_TESTES_OFFLINE.md](docs/ROTEIRO_TESTES_OFFLINE.md).
 
 ## Como funciona o offline (resumo)
@@ -39,8 +39,9 @@ lib/
   data/app_database.dart     banco local (drift): tabelas espelho, fila de pendências, marcos
   models/                    ShoppingList, Item, Product, Member
   services/                  auth, listas, itens, produtos, participantes e sincronização
-  screens/                   telas
-  widgets/                   faixa de estado da sincronização
+  screens/                   telas (listas, itens, participantes, catálogo, problemas de sync)
+  widgets/                   diálogos, seletor de unidade e faixa de estado da sincronização
+  utils/                     texto sem acentos para ordenar e buscar
 supabase/migrations/         SQL do banco (tabelas, regras RLS, funções)
 test/                        testes (support/ tem o servidor falso usado nos testes)
 docs/                        guias

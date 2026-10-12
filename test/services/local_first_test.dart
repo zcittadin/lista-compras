@@ -212,20 +212,17 @@ void main() {
       expect(fresh.products.map((p) => p.name), ['Arroz']);
     });
 
-    test('produto já existente: unidade nova vira a padrão, vazia não apaga', () async {
-      await products.remember('Arroz');
+    test('produto que já existe não é alterado: a unidade do catálogo manda', () async {
+      await products.remember('Arroz', unit: 'kg');
       for (final e in await db.pendingEntries()) {
         await db.markSent(e);
       }
 
-      await products.remember('Arroz', unit: '  ');
-      expect(await db.pendingEntries(), isEmpty);
+      await products.remember('Arroz', unit: 'g'); // outra unidade ao salvar um item
+      await products.remember('arroz');
 
-      await products.remember('Arroz', unit: 'kg');
       expect(products.find('Arroz')?.defaultUnit, 'kg');
-      final e = (await db.pendingEntries()).single;
-      expect(e.op, 'update');
-      expect(payloadOf(e), {'default_unit': 'kg'});
+      expect(await db.pendingEntries(), isEmpty);
     });
   });
 

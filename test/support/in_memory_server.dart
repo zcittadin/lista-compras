@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:lista_compras/services/remote_gateway.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Um "Supabase" em memória, com o comportamento que a sincronização usa:
 /// upsert por id, update por campos, `updated_at` que só cresce (como o
@@ -54,25 +55,40 @@ class InMemoryServer {
     }
   }
 
+  /// A migração 0002: no máximo um produto ATIVO por (dono, nome sem diferenciar
+  /// maiúsculas). Produtos apagados não contam.
+  void _checkProductUnique(Map<String, dynamic> row) {
+    if (row['deleted_at'] != null) return;
+    final name = (row['name'] as String).toLowerCase();
+    for (final other in tables['products']!.values) {
+      if (other['id'] != row['id'] &&
+          other['owner_id'] == row['owner_id'] &&
+          other['deleted_at'] == null &&
+          (other['name'] as String).toLowerCase() == name) {
+        throw PostgrestException(
+          message: 'duplicate key value violates unique constraint "products_owner_name_active_idx"',
+          code: '23505',
+        );
+      }
+    }
+  }
+
   void upsert(String user, String table, Map<String, dynamic> row) {
     final id = row['id'] as String;
     final existing = tables[table]![id];
-    if (existing == null) {
-      tables[table]![id] = {
-        ..._defaults(table, user),
-        'created_at': now(),
-        ...row,
-        'updated_at': now(),
-      };
-    } else {
-      tables[table]![id] = {...existing, ...row, 'updated_at': now()};
-    }
+    final merged = existing == null
+        ? {..._defaults(table, user), 'created_at': now(), ...row, 'updated_at': now()}
+        : {...existing, ...row, 'updated_at': now()};
+    if (table == 'products') _checkProductUnique(merged);
+    tables[table]![id] = merged;
   }
 
   bool update(String user, String table, String id, Map<String, dynamic> fields) {
     final row = tables[table]![id];
     if (row == null || !canSee(user, table, row)) return false;
-    tables[table]![id] = {...row, ...fields, 'updated_at': now()};
+    final merged = {...row, ...fields, 'updated_at': now()};
+    if (table == 'products') _checkProductUnique(merged);
+    tables[table]![id] = merged;
     return true;
   }
 }

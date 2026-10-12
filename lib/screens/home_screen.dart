@@ -8,6 +8,7 @@ import '../services/sync_service.dart';
 import '../widgets/sync_status_banner.dart';
 import 'list_screen.dart';
 import 'members_screen.dart';
+import 'products_screen.dart';
 
 /// Tela inicial: as listas do usuário, atualizadas em tempo real.
 class HomeScreen extends StatefulWidget {
@@ -73,6 +74,14 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Minhas listas'),
         actions: [
+          IconButton(
+            tooltip: 'Catálogo de produtos',
+            icon: const Icon(Icons.inventory_2_outlined),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ProductsScreen()),
+            ),
+          ),
           IconButton(
             tooltip: 'Sair',
             icon: const Icon(Icons.logout),

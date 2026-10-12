@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/item.dart';
-import '../models/measure_unit.dart';
+import 'unit_dropdown.dart';
 
 typedef ItemFormResult = ({String name, num? quantity, String? unit, String? note});
 
@@ -22,15 +22,8 @@ class _ItemDialogState extends State<ItemDialog> {
   late final _quantity = TextEditingController(text: widget.item.quantityText);
   late final _note = TextEditingController(text: widget.item.note);
 
-  /// Símbolo escolhido, ou `null` para "sem unidade". Uma unidade antiga que
-  /// não está no enum (texto livre de antes) é mantida como veio.
-  late String? _unit = _initialUnit(widget.item.unit);
-
-  static String? _initialUnit(String? stored) {
-    final text = stored?.trim();
-    if (text == null || text.isEmpty) return null;
-    return MeasureUnit.display(text);
-  }
+  /// Símbolo escolhido, ou `null` para "sem unidade".
+  late String? _unit = UnitDropdown.normalize(widget.item.unit);
 
   @override
   void dispose() {
@@ -55,22 +48,6 @@ class _ItemDialogState extends State<ItemDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final current = _unit;
-    // Valores possíveis: nenhum, as unidades do enum e, se houver, a unidade
-    // antiga do item (para não ser perdida ao editar).
-    final legacy = current != null && MeasureUnit.parse(current) == null ? current : null;
-    final options = <String?>[
-      null,
-      for (final u in MeasureUnit.values) u.symbol,
-      ?legacy,
-    ];
-
-    String describe(String? symbol) {
-      if (symbol == null) return 'Sem unidade';
-      final unit = MeasureUnit.parse(symbol);
-      return unit == null ? symbol : '${unit.symbol} · ${unit.label}';
-    }
-
     return AlertDialog(
       title: Text(widget.isNew ? 'Novo item' : 'Editar item'),
       content: SingleChildScrollView(
@@ -95,22 +72,8 @@ class _ItemDialogState extends State<ItemDialog> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: DropdownButtonFormField<String?>(
+                  child: UnitDropdown(
                     initialValue: _unit,
-                    isExpanded: true,
-                    decoration: const InputDecoration(labelText: 'Unidade'),
-                    items: [
-                      for (final o in options)
-                        DropdownMenuItem<String?>(
-                          value: o,
-                          child: Text(describe(o), overflow: TextOverflow.ellipsis),
-                        ),
-                    ],
-                    // No campo fechado, só o símbolo (a descrição completa só
-                    // cabe na lista aberta).
-                    selectedItemBuilder: (_) => [
-                      for (final o in options) Text(o ?? '—'),
-                    ],
                     onChanged: (value) => _unit = value,
                   ),
                 ),

@@ -180,25 +180,33 @@ class SyncService with WidgetsBindingObserver {
   // Envio
   // -------------------------------------------------------------------
 
-  bool _pushing = false;
+  Future<void>? _pushLoop;
   bool _pushAgain = false;
 
   /// Envia a fila de pendências. Só uma execução por vez: se chamada durante
-  /// um envio, pede uma nova rodada ao final (para pegar o que entrou nesse meio tempo).
-  Future<void> push() async {
-    if (_pushing) {
+  /// um envio, pede uma nova rodada ao final (para pegar o que entrou nesse
+  /// meio tempo) e devolve o mesmo `Future`, que só completa quando o envio
+  /// em andamento termina. Assim `await push()` sempre significa "a fila foi
+  /// processada".
+  Future<void> push() {
+    final running = _pushLoop;
+    if (running != null) {
       _pushAgain = true;
-      return;
+      return running;
     }
-    _pushing = true;
-    try {
-      do {
-        _pushAgain = false;
-        await _pushOnce();
-      } while (_pushAgain);
-    } finally {
-      _pushing = false;
-    }
+    final loop = _runPushLoop();
+    _pushLoop = loop;
+    loop.whenComplete(() {
+      if (identical(_pushLoop, loop)) _pushLoop = null;
+    });
+    return loop;
+  }
+
+  Future<void> _runPushLoop() async {
+    do {
+      _pushAgain = false;
+      await _pushOnce();
+    } while (_pushAgain);
   }
 
   Future<void> _pushOnce() async {
@@ -367,7 +375,7 @@ class SyncService with WidgetsBindingObserver {
 
   final Set<String> _tablesToPull = {};
   Timer? _pullTimer;
-  bool _pulling = false;
+  Future<void>? _pullLoop;
 
   /// Agenda a busca de [tables], juntando avisos seguidos numa busca só.
   void _schedulePull(Iterable<String> tables) {
@@ -380,22 +388,29 @@ class SyncService with WidgetsBindingObserver {
   Future<void> pullAll() => pull(_allTables);
 
   /// Atualiza o banco local com o servidor para as tabelas pedidas. Uma
-  /// execução por vez; pedidos feitos durante ela entram numa nova rodada.
-  Future<void> pull(Iterable<String> tables) async {
+  /// execução por vez; pedidos feitos durante ela entram numa nova rodada, e
+  /// o `Future` devolvido só completa quando tudo o que foi pedido foi
+  /// buscado (`await pullAll()` significa "dados atualizados").
+  Future<void> pull(Iterable<String> tables) {
     _tablesToPull.addAll(tables);
-    if (_pulling) return;
-    _pulling = true;
-    try {
-      while (_tablesToPull.isNotEmpty) {
-        // Ordem fixa: listas, itens, produtos.
-        final batch = _allTables.where(_tablesToPull.contains).toList();
-        _tablesToPull.clear();
-        for (final table in batch) {
-          await _guard(() => _pullTable(table));
-        }
+    final running = _pullLoop;
+    if (running != null) return running;
+    final loop = _runPullLoop();
+    _pullLoop = loop;
+    loop.whenComplete(() {
+      if (identical(_pullLoop, loop)) _pullLoop = null;
+    });
+    return loop;
+  }
+
+  Future<void> _runPullLoop() async {
+    while (_tablesToPull.isNotEmpty) {
+      // Ordem fixa: listas, itens, produtos.
+      final batch = _allTables.where(_tablesToPull.contains).toList();
+      _tablesToPull.clear();
+      for (final table in batch) {
+        await _guard(() => _pullTable(table));
       }
-    } finally {
-      _pulling = false;
     }
   }
 

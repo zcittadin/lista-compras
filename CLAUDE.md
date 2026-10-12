@@ -33,9 +33,9 @@ aparecerem pela primeira vez, de forma breve.
    itens criados offline sincronizam ao reconectar. Feito em 6 fases (A a F),
    testado com dois celulares em 2026-10-12.
 
-Plano concluído. Ideias para depois (nada aprovado): sincronização com o app
-fechado (WorkManager), tela para gerenciar o catálogo de produtos, participantes
-disponíveis offline, iOS.
+Plano concluído. Depois dele: gerenciamento do catálogo de produtos (feito) e
+importação/exportação do catálogo (a fazer). Ideias sem aprovação: sincronização
+com o app fechado (WorkManager), participantes disponíveis offline, iOS.
 
 ## Decisões técnicas
 
@@ -103,6 +103,26 @@ disponíveis offline, iOS.
   incluir unidades não exige migração. Unidades antigas digitadas à mão são
   padronizadas se reconhecidas ("Kg" vira "kg") e preservadas se não ("lata").
   O diálogo é `lib/widgets/item_dialog.dart`.
+- **Catálogo de produtos:** tela `lib/screens/products_screen.dart` (ícone na barra da
+  tela inicial): buscar (sem acentos), criar, editar (nome e unidade padrão) e apagar
+  por arraste, com "Desfazer" (exclusão suave; restaurar limpa `deleted_at`).
+  `ProductsService` tem `create/update/delete/restore/watchProducts`. Nome único sem
+  diferenciar maiúsculas **nem emojis** ("Arroz" = "Arroz 🍚": a esposa do Zander
+  enfeita nomes com emoji), mas **acentos contam** como no servidor ("Acucar" ≠
+  "Açúcar"); a identidade é `nameKey` em `lib/utils/text.dart`. Repetido lança
+  `DuplicateProductException` (com o nome que já existe). Isso é mais rígido que o
+  índice do servidor (que só compara `lower(name)`), então só o app barra
+  "Arroz" × "Arroz 🍚"; editar um produto sem mudar a identidade do nome nunca é
+  barrado (catálogos antigos com duplicatas continuam editáveis). Ordenação e busca
+  ignoram acentos e emojis (`foldForSearch`). Renomear/apagar um produto **não altera itens** (guardam o
+  nome como texto). A unidade padrão é a definida no catálogo: `remember()` (chamado ao
+  salvar um item) só cria produto novo e nunca altera um existente; digitar o nome de
+  um produto apagado o recria. Migração `0002_catalogo_produtos.sql` troca
+  `unique (owner_id, name)` por índice único parcial `(owner_id, lower(name)) where
+  deleted_at is null` (senão apagar e recriar o nome seria recusado). `products` não
+  está no Realtime: outro aparelho só vê mudanças ao abrir/voltar/reconectar.
+  **Próximo passo combinado:** importar catálogo inicial por arquivo (CSV/TXT, e colar
+  texto) com pré-visualização, mais exportar; ainda não feito.
   O catálogo `products` é lido do banco local ao abrir uma lista (é pessoal, sem Realtime).
 - **Compartilhamento:** tela de participantes (`members_screen.dart`), acessível
   pelo ícone de grupo na lista e pelo menu de três pontinhos na tela inicial
