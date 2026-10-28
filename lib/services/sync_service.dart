@@ -9,6 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../data/app_database.dart';
 import 'auth_service.dart';
+import 'realtime_keeper.dart';
 import 'remote_gateway.dart';
 
 /// Sincronização entre o SQLite local e o Supabase.
@@ -59,8 +60,16 @@ class SyncService with WidgetsBindingObserver {
   ValueListenable<bool> get online => _online;
 
   RealtimeChannel? _channel;
+
+  /// Número do canal atual: avisos atrasados de um canal já descartado são ignorados.
+  int _channelGeneration = 0;
+
+  late final RealtimeKeeper _realtime = RealtimeKeeper(
+    connect: _connectChannel,
+    disconnect: _disconnectChannel,
+    onRecovered: syncNow, // pode ter havido mudanças enquanto o canal esteve fora
+  );
   bool _started = false;
-  bool _wasSubscribed = false;
 
   // -------------------------------------------------------------------
   // Ciclo de vida
@@ -100,28 +109,72 @@ class SyncService with WidgetsBindingObserver {
       if (!_online.value) pullAll();
     });
 
-    // Realtime como aviso: qualquer mudança nas tabelas dispara uma busca
-    // (REST) daquela tabela. Ser convidado ou removido só mexe em
-    // `list_members` e não altera a linha da lista, então esse aviso busca
-    // listas e itens.
-    _channel = _supabase.channel('sync-changes');
+    // Sessão renovada (token novo): se o canal de tempo real está quebrado,
+    // refaz na hora.
+    _subscriptions.add(
+      _supabase.auth.onAuthStateChange.listen((data) {
+        if (data.event == AuthChangeEvent.tokenRefreshed || data.event == AuthChangeEvent.signedIn) {
+          _realtime.sessionRefreshed();
+        }
+      }, onError: _logError),
+    );
+
+    // O canal só é aberto depois de garantir um token válido: com o token
+    // vencido o servidor recusa a inscrição ("InvalidJWTToken").
+    _ensureFreshSession().whenComplete(() {
+      if (_started) _realtime.start();
+    });
+  }
+
+  /// Se a sessão guardada no celular venceu (app fechado por dias), renova
+  /// antes de usar. Sem internet não dá; o canal tenta mesmo assim e o
+  /// [RealtimeKeeper] refaz quando a sessão for renovada.
+  Future<void> _ensureFreshSession() async {
+    final session = _supabase.auth.currentSession;
+    if (session == null || !session.isExpired) return;
+    try {
+      await _supabase.auth.refreshSession();
+    } catch (e) {
+      _logError(e);
+    }
+  }
+
+  /// Realtime como aviso: qualquer mudança nas tabelas dispara uma busca
+  /// (REST) daquela tabela. Ser convidado ou removido só mexe em
+  /// `list_members` e não altera a linha da lista, então esse aviso busca
+  /// listas e itens.
+  void _connectChannel() {
+    final generation = ++_channelGeneration;
+    final channel = _supabase.channel('sync-changes');
     for (final table in ['lists', 'items', 'list_members']) {
-      _channel!.onPostgresChanges(
+      channel.onPostgresChanges(
         event: PostgresChangeEvent.all,
         schema: 'public',
         table: table,
         callback: (_) => _schedulePull(table == 'list_members' ? ['lists', 'items'] : [table]),
       );
     }
-    _channel!.subscribe((status, [error]) {
-      if (status == RealtimeSubscribeStatus.subscribed) {
-        // Depois de uma reconexão, pode ter havido eventos que não recebemos.
-        if (_wasSubscribed) syncNow();
-        _wasSubscribed = true;
-      } else if (error != null) {
-        _logError(error);
+    _channel = channel;
+    channel.subscribe((status, [error]) {
+      if (generation != _channelGeneration) return; // canal antigo
+      switch (status) {
+        case RealtimeSubscribeStatus.subscribed:
+          _realtime.reportSubscribed();
+        case RealtimeSubscribeStatus.channelError:
+        case RealtimeSubscribeStatus.timedOut:
+          _logError('tempo real: $status ${error ?? ''}');
+          _realtime.reportFailed();
+        case RealtimeSubscribeStatus.closed:
+          break; // fechado por nós
       }
     });
+  }
+
+  void _disconnectChannel() {
+    _channelGeneration++; // invalida os avisos do canal que está saindo
+    final channel = _channel;
+    _channel = null;
+    if (channel != null) _supabase.removeChannel(channel);
   }
 
   static const _ownerKey = 'db_owner';
@@ -153,11 +206,8 @@ class SyncService with WidgetsBindingObserver {
     _retryTimer?.cancel();
     _pullTimer?.cancel();
     _tablesToPull.clear();
-    final channel = _channel;
-    _channel = null;
-    if (channel != null) _supabase.removeChannel(channel);
+    if (_started) _realtime.stop();
     _started = false;
-    _wasSubscribed = false;
   }
 
   @override

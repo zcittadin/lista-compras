@@ -85,6 +85,12 @@ com o app fechado (WorkManager), participantes disponíveis offline, iOS.
     usuário apareceram no celular da esposa do Zander (2026-10-12). Não voltar a
     usar `.stream()` como fonte de dados (a tela de participantes ainda usa, mas
     só lê membros de listas já visíveis).
+    **Canal vivo:** `RealtimeKeeper` (`lib/services/realtime_keeper.dart`, lógica pura
+    com relógio injetável) mantém o canal: falhou → tenta de novo com espera crescente
+    (2, 5, 15, 30, 60 s); sessão renovada com o canal quebrado → refaz na hora; voltou
+    depois de uma queda → `syncNow`. O canal só abre depois de renovar a sessão vencida
+    (`_ensureFreshSession`). Motivo (2026-10-18): app aberto com o token vencido, servidor
+    recusou o canal (`InvalidJWTToken`) e os avisos pararam até sair e entrar na conta.
   - **Interface:** `SyncStatusBanner` (sem conexão, pendências, falhas) e
     `SyncIssuesScreen` (tentar de novo / descartar; descartar desfaz a mudança local).
   - **Conta:** sair apaga o banco local (avisa se houver pendências); o banco é
