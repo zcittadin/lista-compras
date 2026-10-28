@@ -10,6 +10,7 @@ class Item {
     this.quantity,
     this.unit,
     this.note,
+    this.position,
   });
 
   final String id;
@@ -20,6 +21,9 @@ class Item {
   final String? unit;
   final String? note;
 
+  /// Ordem manual na lista (veja `lib/utils/ordering.dart`).
+  final double? position;
+
   factory Item.fromLocal(LocalItem row) => Item(
         id: row.id,
         listId: row.listId,
@@ -28,6 +32,7 @@ class Item {
         quantity: row.quantity,
         unit: row.unit,
         note: row.note,
+        position: row.position,
       );
 
   /// A quantidade como texto ("2", "0.5"), ou "" se não houver.

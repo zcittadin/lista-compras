@@ -9,6 +9,7 @@ import '../services/items_service.dart';
 import '../services/lists_service.dart';
 import '../services/products_service.dart';
 import '../widgets/item_dialog.dart';
+import '../widgets/items_view.dart';
 import '../widgets/sync_status_banner.dart';
 import 'members_screen.dart';
 
@@ -155,20 +156,16 @@ class _ListScreenState extends State<ListScreen> {
                 if (!snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                // Pendentes primeiro; marcados vão para o fim (sort estável).
-                final items = [...snapshot.data!]
-                  ..sort((a, b) => a.checked == b.checked ? 0 : (a.checked ? 1 : -1));
-                if (items.isEmpty) {
-                  return const Center(child: Text('Lista vazia. Adicione o primeiro item abaixo.'));
-                }
-                return ListView.builder(
-                  itemCount: items.length,
-                  itemBuilder: (context, i) => _ItemTile(
-                    key: ValueKey(items[i].id),
-                    item: items[i],
-                    onToggle: (v) => _run(() => ItemsService.instance.setChecked(items[i].id, v)),
-                    onEdit: () => _edit(items[i]),
-                    onDelete: () => _run(() => ItemsService.instance.deleteItem(items[i].id)),
+                return ItemsView(
+                  items: snapshot.data!,
+                  onToggle: (item, v) => _run(() => ItemsService.instance.setChecked(item.id, v)),
+                  onEdit: _edit,
+                  onDelete: (item) => _run(() => ItemsService.instance.deleteItem(item.id)),
+                  onMove: (item, {afterId, beforeId}) => ItemsService.instance.moveItem(
+                    widget.list.id,
+                    item.id,
+                    afterId: afterId,
+                    beforeId: beforeId,
                   ),
                 );
               },
@@ -243,52 +240,6 @@ class _ListScreenState extends State<ListScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _ItemTile extends StatelessWidget {
-  const _ItemTile({
-    super.key,
-    required this.item,
-    required this.onToggle,
-    required this.onEdit,
-    required this.onDelete,
-  });
-
-  final Item item;
-  final ValueChanged<bool> onToggle;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    final details = [
-      item.quantityLabel,
-      if (item.note != null) item.note!,
-    ].where((s) => s.isNotEmpty).join(' · ');
-
-    return Dismissible(
-      key: ValueKey('dismiss-${item.id}'),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        color: Theme.of(context).colorScheme.errorContainer,
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 16),
-        child: const Icon(Icons.delete),
-      ),
-      onDismissed: (_) => onDelete(),
-      child: ListTile(
-        leading: Checkbox(value: item.checked, onChanged: (v) => onToggle(v ?? false)),
-        title: Text(
-          item.name,
-          style: item.checked
-              ? const TextStyle(decoration: TextDecoration.lineThrough, color: Colors.grey)
-              : null,
-        ),
-        subtitle: details.isEmpty ? null : Text(details),
-        onTap: onEdit,
       ),
     );
   }

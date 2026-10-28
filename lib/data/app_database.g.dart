@@ -578,6 +578,17 @@ class $LocalItemsTable extends LocalItems
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _positionMeta = const VerificationMeta(
+    'position',
+  );
+  @override
+  late final GeneratedColumn<double> position = GeneratedColumn<double>(
+    'position',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -591,6 +602,7 @@ class $LocalItemsTable extends LocalItems
     createdAt,
     updatedAt,
     deletedAt,
+    position,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -677,6 +689,12 @@ class $LocalItemsTable extends LocalItems
         deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
       );
     }
+    if (data.containsKey('position')) {
+      context.handle(
+        _positionMeta,
+        position.isAcceptableOrUnknown(data['position']!, _positionMeta),
+      );
+    }
     return context;
   }
 
@@ -730,6 +748,10 @@ class $LocalItemsTable extends LocalItems
         DriftSqlType.dateTime,
         data['${effectivePrefix}deleted_at'],
       ),
+      position: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}position'],
+      ),
     );
   }
 
@@ -751,6 +773,11 @@ class LocalItem extends DataClass implements Insertable<LocalItem> {
   final DateTime createdAt;
   final DateTime updatedAt;
   final DateTime? deletedAt;
+
+  /// Ordem manual na lista (arrastar). Número com casas decimais: mover um item
+  /// entre dois outros só muda a posição dele. Nulo só em itens vindos de um
+  /// servidor ainda sem a migração 0003; esses vão para o fim, por data.
+  final double? position;
   const LocalItem({
     required this.id,
     required this.listId,
@@ -763,6 +790,7 @@ class LocalItem extends DataClass implements Insertable<LocalItem> {
     required this.createdAt,
     required this.updatedAt,
     this.deletedAt,
+    this.position,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -788,6 +816,9 @@ class LocalItem extends DataClass implements Insertable<LocalItem> {
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
     }
+    if (!nullToAbsent || position != null) {
+      map['position'] = Variable<double>(position);
+    }
     return map;
   }
 
@@ -810,6 +841,9 @@ class LocalItem extends DataClass implements Insertable<LocalItem> {
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
+      position: position == null && nullToAbsent
+          ? const Value.absent()
+          : Value(position),
     );
   }
 
@@ -830,6 +864,7 @@ class LocalItem extends DataClass implements Insertable<LocalItem> {
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      position: serializer.fromJson<double?>(json['position']),
     );
   }
   @override
@@ -847,6 +882,7 @@ class LocalItem extends DataClass implements Insertable<LocalItem> {
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'position': serializer.toJson<double?>(position),
     };
   }
 
@@ -862,6 +898,7 @@ class LocalItem extends DataClass implements Insertable<LocalItem> {
     DateTime? createdAt,
     DateTime? updatedAt,
     Value<DateTime?> deletedAt = const Value.absent(),
+    Value<double?> position = const Value.absent(),
   }) => LocalItem(
     id: id ?? this.id,
     listId: listId ?? this.listId,
@@ -874,6 +911,7 @@ class LocalItem extends DataClass implements Insertable<LocalItem> {
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    position: position.present ? position.value : this.position,
   );
   LocalItem copyWithCompanion(LocalItemsCompanion data) {
     return LocalItem(
@@ -888,6 +926,7 @@ class LocalItem extends DataClass implements Insertable<LocalItem> {
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      position: data.position.present ? data.position.value : this.position,
     );
   }
 
@@ -904,7 +943,8 @@ class LocalItem extends DataClass implements Insertable<LocalItem> {
           ..write('createdBy: $createdBy, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
-          ..write('deletedAt: $deletedAt')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('position: $position')
           ..write(')'))
         .toString();
   }
@@ -922,6 +962,7 @@ class LocalItem extends DataClass implements Insertable<LocalItem> {
     createdAt,
     updatedAt,
     deletedAt,
+    position,
   );
   @override
   bool operator ==(Object other) =>
@@ -937,7 +978,8 @@ class LocalItem extends DataClass implements Insertable<LocalItem> {
           other.createdBy == this.createdBy &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
-          other.deletedAt == this.deletedAt);
+          other.deletedAt == this.deletedAt &&
+          other.position == this.position);
 }
 
 class LocalItemsCompanion extends UpdateCompanion<LocalItem> {
@@ -952,6 +994,7 @@ class LocalItemsCompanion extends UpdateCompanion<LocalItem> {
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<DateTime?> deletedAt;
+  final Value<double?> position;
   final Value<int> rowid;
   const LocalItemsCompanion({
     this.id = const Value.absent(),
@@ -965,6 +1008,7 @@ class LocalItemsCompanion extends UpdateCompanion<LocalItem> {
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.position = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   LocalItemsCompanion.insert({
@@ -979,6 +1023,7 @@ class LocalItemsCompanion extends UpdateCompanion<LocalItem> {
     required DateTime createdAt,
     required DateTime updatedAt,
     this.deletedAt = const Value.absent(),
+    this.position = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        listId = Value(listId),
@@ -997,6 +1042,7 @@ class LocalItemsCompanion extends UpdateCompanion<LocalItem> {
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<DateTime>? deletedAt,
+    Expression<double>? position,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1011,6 +1057,7 @@ class LocalItemsCompanion extends UpdateCompanion<LocalItem> {
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (deletedAt != null) 'deleted_at': deletedAt,
+      if (position != null) 'position': position,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1027,6 +1074,7 @@ class LocalItemsCompanion extends UpdateCompanion<LocalItem> {
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<DateTime?>? deletedAt,
+    Value<double?>? position,
     Value<int>? rowid,
   }) {
     return LocalItemsCompanion(
@@ -1041,6 +1089,7 @@ class LocalItemsCompanion extends UpdateCompanion<LocalItem> {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       deletedAt: deletedAt ?? this.deletedAt,
+      position: position ?? this.position,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1081,6 +1130,9 @@ class LocalItemsCompanion extends UpdateCompanion<LocalItem> {
     if (deletedAt.present) {
       map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
+    if (position.present) {
+      map['position'] = Variable<double>(position.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1101,6 +1153,7 @@ class LocalItemsCompanion extends UpdateCompanion<LocalItem> {
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('deletedAt: $deletedAt, ')
+          ..write('position: $position, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2717,6 +2770,7 @@ typedef $$LocalItemsTableCreateCompanionBuilder = LocalItemsCompanion Function({
   required DateTime createdAt,
   required DateTime updatedAt,
   Value<DateTime?> deletedAt,
+  Value<double?> position,
   Value<int> rowid,
 });
 typedef $$LocalItemsTableUpdateCompanionBuilder = LocalItemsCompanion Function({
@@ -2731,6 +2785,7 @@ typedef $$LocalItemsTableUpdateCompanionBuilder = LocalItemsCompanion Function({
   Value<DateTime> createdAt,
   Value<DateTime> updatedAt,
   Value<DateTime?> deletedAt,
+  Value<double?> position,
   Value<int> rowid,
 });
 
@@ -2795,6 +2850,11 @@ class $$LocalItemsTableFilterComposer
 
   ColumnFilters<DateTime> get deletedAt => $composableBuilder(
     column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get position => $composableBuilder(
+    column: $table.position,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -2862,6 +2922,11 @@ class $$LocalItemsTableOrderingComposer
     column: $table.deletedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<double> get position => $composableBuilder(
+    column: $table.position,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$LocalItemsTableAnnotationComposer
@@ -2905,6 +2970,9 @@ class $$LocalItemsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<double> get position =>
+      $composableBuilder(column: $table.position, builder: (column) => column);
 }
 
 class $$LocalItemsTableTableManager
@@ -2949,6 +3017,7 @@ class $$LocalItemsTableTableManager
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<double?> position = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => LocalItemsCompanion(
                 id: id,
@@ -2962,6 +3031,7 @@ class $$LocalItemsTableTableManager
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 deletedAt: deletedAt,
+                position: position,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -2977,6 +3047,7 @@ class $$LocalItemsTableTableManager
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<double?> position = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => LocalItemsCompanion.insert(
                 id: id,
@@ -2990,6 +3061,7 @@ class $$LocalItemsTableTableManager
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 deletedAt: deletedAt,
+                position: position,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

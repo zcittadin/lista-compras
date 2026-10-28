@@ -658,6 +658,8 @@ class SyncService with WidgetsBindingObserver {
         createdAt: Value(_ts(m['created_at'])),
         updatedAt: Value(_ts(m['updated_at'])),
         deletedAt: Value(_tsOrNull(m['deleted_at'])),
+        // Ausente se o servidor ainda não tem a migração 0003.
+        position: Value((m['position'] as num?)?.toDouble()),
       );
 
   static LocalProductsCompanion _productRow(Map<String, dynamic> m) => LocalProductsCompanion(

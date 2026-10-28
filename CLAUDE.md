@@ -37,6 +37,58 @@ Plano concluído. Depois dele: gerenciamento do catálogo de produtos e
 importação/exportação do catálogo (feitos). Ideias sem aprovação: sincronização
 com o app fechado (WorkManager), participantes disponíveis offline, iOS.
 
+## Reordenar itens arrastando (implementada em 2026-10-18; falta teste no celular)
+
+Decidida com o Zander em 2026-10-12 e implementada em 2026-10-18. Inspiração:
+Google Keep (puxador de 6 pontinhos para arrastar e reordenar itens da lista).
+
+Decisões já tomadas (não reabrir):
+- **UI:** `ReorderableListView` com puxador explícito (`Icons.drag_indicator`), arrasto
+  **só pelo puxador** (`buildDefaultDragHandles: false`), para não conflitar com tocar
+  (editar) e deslizar (apagar, `Dismissible`).
+- **Só os itens pendentes** são reordenáveis. Marcados guardam a posição e voltam a ela
+  ao desmarcar.
+- **Seção de marcados recolhível** ("N itens marcados"), como no Keep. Faz parte do escopo.
+- **Ordem compartilhada** entre os membros da lista (coluna no servidor), não pessoal.
+- **Posição fracionária:** coluna `position` (double); mover = 1 update de 1 item
+  (média entre os vizinhos), o que encaixa na fila por campo e minimiza conflitos.
+  Item novo vai para o fim (maior posição + 1). Rebalancear (renumerar a lista) só
+  quando o vão entre vizinhos ficar pequeno demais. Empate de posição: desempate fixo
+  por `created_at` (e `id`), igual em todos os aparelhos. Conflito no mesmo item:
+  vence a última escrita, como nos outros campos.
+- **Durante o arrasto**, não aplicar atualizações que chegarem (sincronização), para a
+  lista não "pular" na mão do usuário; aplicar ao soltar.
+
+Plano em 3 partes, cada uma testada antes da próxima:
+1. **Migrações:** Supabase `0003_...sql` (adiciona `items.position` e preenche os
+   existentes na ordem de `created_at` por lista, para nada mudar de lugar) e a
+   **primeira migração do drift** (`schemaVersion` 1 → 2, `onUpgrade` com a coluna e o
+   preenchimento), com testes de migração.
+2. **Lógica:** `ItemsService.move(...)`, cálculo da posição e rebalanceamento,
+   `position` no envio/recebimento; testes de unidade e cenários de dois aparelhos
+   (movimentos simultâneos, offline).
+3. **Interface:** puxador, arrasto, seção de marcados recolhível; atualizar o roteiro
+   manual (`docs/ROTEIRO_TESTES_OFFLINE.md`).
+
+Como ficou: `lib/utils/ordering.dart` (`positionBetween`, `needsRebalance`, `minGap` =
+1e-6, ~20 movimentos no mesmo vão antes de renumerar); `ItemsService.moveItem(listId,
+itemId, afterId:, beforeId:)` (renumera a lista toda, incluindo marcados e apagados, se o
+vão acabou ou se há item sem posição); `watchItems` ordena por posição (nulos no fim),
+`created_at`, `id`; `addItem` põe no fim e envia `position`. Servidor: migração
+`0003_ordem_dos_itens.sql` (coluna, preenchimento por `row_number()`, trigger
+`items_default_position` que põe no fim o item inserido sem posição por um app antigo,
+`not null`, índice). Local: drift `schemaVersion` 2 com `onUpgrade`; retratos em
+`drift_schemas/` e testes de migração com `SchemaVerifier`
+(`test/generated_migrations/`, `test/data/migration_test.dart`). Ao criar a versão 3:
+`dart run drift_dev schema dump lib/data/app_database.dart drift_schemas/drift_schema_v3.json`
+e `dart run drift_dev schema generate --data-classes --companions drift_schemas test/generated_migrations`.
+Tela: `lib/widgets/items_view.dart` (`SliverReorderableList` com `onReorderItem`, que já
+ajusta o índice; não ajustar de novo). Segura as atualizações do arraste até a gravação
+terminar e mostra a nova ordem na hora (otimista); se falhar, volta e avisa.
+
+Ideia futura relacionada (sem aprovação): agrupar itens por seção do mercado usando
+`products.category` (coluna existente e ainda sem uso).
+
 ## Decisões técnicas
 
 - **Backend:** Supabase. Esquema em `supabase/migrations/` (aplicado manualmente

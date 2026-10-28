@@ -109,6 +109,21 @@ Detalhes dos formatos em [IMPORTAR_CATALOGO.md](IMPORTAR_CATALOGO.md).
 4. Em A, remova B e convide de novo: o aviso volta a aparecer em B.
 5. Listas que B já tinha antes desta versão do app não geram aviso.
 
+## 10. Reordenar itens (puxador de 6 pontinhos)
+
+1. Os itens que já existiam aparecem na mesma ordem de antes da atualização.
+2. Arraste um item pelo puxador (6 pontinhos, à esquerda) para cima, para baixo,
+   para o topo e para o fim. Ao soltar, ele fica no lugar, sem "pular".
+3. Tocar no item ainda edita; deslizar para a esquerda ainda apaga; arrastar fora
+   do puxador não reordena (só rola a lista).
+4. Marque um item: ele vai para "N itens marcados" (toque no cabeçalho para
+   recolher/abrir). Desmarque: ele volta ao lugar onde estava.
+5. Com a lista compartilhada aberta nos dois celulares, reordene em A: a nova
+   ordem aparece em B. Ao mesmo tempo, arraste em B: a lista não pula na mão.
+6. Modo avião em A e B, cada um reordena; ao reconectar, os dois terminam com a
+   mesma ordem.
+7. Item novo vai para o fim da lista.
+
 ## Se algo falhar
 
 O Debug Console (com o celular conectado e `flutter run`) mostra linhas

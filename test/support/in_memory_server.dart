@@ -80,6 +80,14 @@ class InMemoryServer {
         ? {..._defaults(table, user), 'created_at': now(), ...row, 'updated_at': now()}
         : {...existing, ...row, 'updated_at': now()};
     if (table == 'products') _checkProductUnique(merged);
+    // Trigger da migração 0003: item criado sem posição vai para o fim da lista.
+    if (table == 'items' && existing == null && merged['position'] == null) {
+      final positions = [
+        for (final r in tables['items']!.values)
+          if (r['list_id'] == merged['list_id'] && r['position'] != null) (r['position'] as num).toDouble(),
+      ];
+      merged['position'] = (positions.isEmpty ? 0.0 : positions.reduce((a, b) => a > b ? a : b)) + 1;
+    }
     tables[table]![id] = merged;
   }
 

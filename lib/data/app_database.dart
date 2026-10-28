@@ -38,6 +38,11 @@ class LocalItems extends Table {
   DateTimeColumn get updatedAt => dateTime()();
   DateTimeColumn get deletedAt => dateTime().nullable()();
 
+  /// Ordem manual na lista (arrastar). Número com casas decimais: mover um item
+  /// entre dois outros só muda a posição dele. Nulo só em itens vindos de um
+  /// servidor ainda sem a migração 0003; esses vão para o fim, por data.
+  RealColumn get position => real().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -119,8 +124,33 @@ class AppDatabase extends _$AppDatabase {
   /// Instância única usada pelo app (aberta na primeira vez que for pedida).
   static AppDatabase get instance => _instance ??= AppDatabase.open();
 
+  /// Versões do esquema local:
+  /// 1. inicial (etapa 4);
+  /// 2. `local_items.position` (ordem manual dos itens).
+  ///
+  /// Cada versão nova precisa de um passo em [migration] e de um retrato em
+  /// `drift_schemas/` (`dart run drift_dev schema dump ...`), usado nos testes.
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            await m.addColumn(localItems, localItems.position);
+            // Itens que já estavam no celular: posições 1, 2, 3... por lista,
+            // na ordem de criação (a mesma regra da migração 0003 do servidor).
+            await customStatement('''
+              UPDATE local_items SET position = (
+                SELECT COUNT(*) FROM local_items AS o
+                WHERE o.list_id = local_items.list_id
+                  AND (o.created_at < local_items.created_at
+                       OR (o.created_at = local_items.created_at AND o.id <= local_items.id))
+              )
+            ''');
+          }
+        },
+      );
 
   // -------------------------------------------------------------------
   // Fila de pendências
