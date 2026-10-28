@@ -37,7 +37,7 @@ Plano concluído. Depois dele: gerenciamento do catálogo de produtos e
 importação/exportação do catálogo (feitos). Ideias sem aprovação: sincronização
 com o app fechado (WorkManager), participantes disponíveis offline, iOS.
 
-## Reordenar itens arrastando (implementada em 2026-10-18; falta teste no celular)
+## Reordenar itens arrastando (implementada em 2026-10-18; testada no celular em 2026-10-28)
 
 Decidida com o Zander em 2026-10-12 e implementada em 2026-10-18. Inspiração:
 Google Keep (puxador de 6 pontinhos para arrastar e reordenar itens da lista).
