@@ -28,6 +28,8 @@ class ShoppingList {
     required this.ownerId,
     required this.name,
     required this.category,
+    this.lastUpdatedAt,
+    this.lastUpdatedBy,
   });
 
   final String id;
@@ -35,10 +37,22 @@ class ShoppingList {
   final String name;
   final ListCategory category;
 
-  factory ShoppingList.fromLocal(LocalList row) => ShoppingList(
+  /// Última atualização da lista ou de qualquer item dela, e quem fez (id do
+  /// usuário). Só vem preenchido em `ListsService.watchLists`.
+  final DateTime? lastUpdatedAt;
+  final String? lastUpdatedBy;
+
+  factory ShoppingList.fromLocal(
+    LocalList row, {
+    DateTime? lastUpdatedAt,
+    String? lastUpdatedBy,
+  }) =>
+      ShoppingList(
         id: row.id,
         ownerId: row.ownerId,
         name: row.name,
         category: ListCategory.fromValue(row.category),
+        lastUpdatedAt: lastUpdatedAt,
+        lastUpdatedBy: lastUpdatedBy,
       );
 }

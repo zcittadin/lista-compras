@@ -124,6 +124,20 @@ Detalhes dos formatos em [IMPORTAR_CATALOGO.md](IMPORTAR_CATALOGO.md).
    mesma ordem.
 7. Item novo vai para o fim da lista.
 
+## 11. Última atualização na tela inicial
+
+Antes: rode `supabase/migrations/0004_quem_atualizou.sql` no SQL Editor.
+
+1. Cada lista mostra "Última atualização dd/mm/aaaa hh:mm por ...". Listas e itens
+   de antes da migração mostram o criador/dono como autor.
+2. Em A, adicione, marque e apague um item: a data e hora da lista mudam na hora,
+   com "por você".
+3. Em B (lista compartilhada), depois de sincronizar, aparece o nome de A como autor.
+   Faça uma alteração em B: em A passa a aparecer o nome de B.
+4. Renomear a lista também conta.
+5. Modo avião em A: a alteração atualiza a data na hora; o nome de outra pessoa que
+   ainda não foi buscado fica de fora (só a data), sem erro.
+
 ## Se algo falhar
 
 O Debug Console (com o celular conectado e `flutter run`) mostra linhas

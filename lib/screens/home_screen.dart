@@ -6,6 +6,7 @@ import '../services/auth_service.dart';
 import '../services/lists_service.dart';
 import '../services/members_service.dart';
 import '../services/sync_service.dart';
+import '../widgets/last_update_text.dart';
 import '../widgets/shared_lists_notice.dart';
 import '../widgets/sync_status_banner.dart';
 import 'list_screen.dart';
@@ -135,7 +136,22 @@ class _HomeScreenState extends State<HomeScreen> {
                     return ListTile(
                       leading: Icon(list.category.icon),
                       title: Text(list.name),
-                      subtitle: Text(list.category.label),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(list.category.label),
+                          if (list.lastUpdatedAt != null)
+                            LastUpdateText(
+                              at: list.lastUpdatedAt!,
+                              userId: list.lastUpdatedBy,
+                              currentUserId: userId,
+                              nameOf: MembersService.instance.displayName,
+                              cachedName: MembersService.instance.cachedName,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                        ],
+                      ),
+                      isThreeLine: list.lastUpdatedAt != null,
                       // Só o dono altera, apaga ou compartilha (regra da RLS); os demais
                       // têm só "Participantes", onde também podem sair da lista.
                       trailing: PopupMenuButton<String>(

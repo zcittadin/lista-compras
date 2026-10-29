@@ -21,6 +21,10 @@ class LocalLists extends Table {
   DateTimeColumn get updatedAt => dateTime()();
   DateTimeColumn get deletedAt => dateTime().nullable()();
 
+  /// Quem alterou por último (o servidor carimba; aqui já gravamos o usuário
+  /// local para valer offline). Nulo em linhas antigas: a tela usa o dono.
+  TextColumn get updatedBy => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -42,6 +46,9 @@ class LocalItems extends Table {
   /// entre dois outros só muda a posição dele. Nulo só em itens vindos de um
   /// servidor ainda sem a migração 0003; esses vão para o fim, por data.
   RealColumn get position => real().nullable()();
+
+  /// Quem alterou por último. Nulo em itens antigos: a tela usa [createdBy].
+  TextColumn get updatedBy => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -126,12 +133,13 @@ class AppDatabase extends _$AppDatabase {
 
   /// Versões do esquema local:
   /// 1. inicial (etapa 4);
-  /// 2. `local_items.position` (ordem manual dos itens).
+  /// 2. `local_items.position` (ordem manual dos itens);
+  /// 3. `updated_by` em `local_lists` e `local_items` ("atualizada por...").
   ///
   /// Cada versão nova precisa de um passo em [migration] e de um retrato em
   /// `drift_schemas/` (`dart run drift_dev schema dump ...`), usado nos testes.
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -148,6 +156,12 @@ class AppDatabase extends _$AppDatabase {
                        OR (o.created_at = local_items.created_at AND o.id <= local_items.id))
               )
             ''');
+          }
+          if (from < 3) {
+            // Sem preenchimento: nulo = "ainda não sei"; a tela cai no criador/dono
+            // e o próximo envio/busca com o servidor atualizado traz o valor.
+            await m.addColumn(localLists, localLists.updatedBy);
+            await m.addColumn(localItems, localItems.updatedBy);
           }
         },
       );

@@ -33,9 +33,10 @@ aparecerem pela primeira vez, de forma breve.
    itens criados offline sincronizam ao reconectar. Feito em 6 fases (A a F),
    testado com dois celulares em 2026-10-12.
 
-Plano concluído. Depois dele: gerenciamento do catálogo de produtos e
-importação/exportação do catálogo (feitos). Ideias sem aprovação: sincronização
-com o app fechado (WorkManager), participantes disponíveis offline, iOS.
+Plano concluído. Depois dele: gerenciamento do catálogo de produtos,
+importação/exportação do catálogo e "última atualização" nas listas (feitos). Ideias
+sem aprovação: sincronização com o app fechado (WorkManager), participantes disponíveis
+offline, iOS.
 
 ## Reordenar itens arrastando (implementada em 2026-10-18; testada no celular em 2026-10-28)
 
@@ -88,6 +89,29 @@ terminar e mostra a nova ordem na hora (otimista); se falhar, volta e avisa.
 
 Ideia futura relacionada (sem aprovação): agrupar itens por seção do mercado usando
 `products.category` (coluna existente e ainda sem uso).
+
+## Última atualização da lista (implementada em 2026-10-29; testada no S24)
+
+Cada lista da tela inicial mostra "Última atualização 29/10/2026 18:27 por Fulano".
+- **Servidor:** migração `0004_quem_atualizou.sql` adiciona `updated_by` em `lists` e
+  `items`. O trigger `touch_updated_at_and_by` (substitui `touch_updated_at` nessas duas
+  tabelas; `products` mantém o antigo) grava `auth.uid()`; o app **não envia** o campo
+  (ninguém assina em nome de outro). Sem usuário (SQL Editor) mantém o anterior. Linhas
+  antigas ficam nulas de propósito (mexer nelas mudaria `updated_at` e forçaria todo
+  celular a baixar tudo).
+- **Local:** drift `schemaVersion` 3 (`updated_by` em `local_lists`/`local_items`, sem
+  preenchimento); as escritas locais gravam o usuário atual, então vale offline;
+  `SyncService` lê `updated_by` do servidor.
+- **Cálculo:** `ListsService.watchLists` devolve `ShoppingList.lastUpdatedAt/By` = o mais
+  recente entre a lista e seus itens (apagar item também conta). Calculado no app, a
+  linha da lista no servidor **não** muda quando um item muda. Sem `updated_by`: item cai
+  em `created_by`, lista cai no dono.
+- **Tela:** `LastUpdateText` (`lib/widgets/last_update_text.dart`): o próprio usuário
+  aparece como "você"; nomes de outros via `MembersService.displayName` (cache em
+  memória, `cachedName` evita piscar); sem rede aparece só a data.
+  Formato em `lib/utils/last_update.dart`.
+- Ao criar a versão 4 do drift, siga os comandos de schema dump/generate citados na seção
+  de reordenação.
 
 ## Decisões técnicas
 

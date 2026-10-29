@@ -32,11 +32,51 @@ class ListsService {
   final String? Function() _currentUserId;
   final DateTime Function() _now;
 
+  /// As listas com a "última atualização": o que for mais recente entre a
+  /// própria lista (renomear...) e qualquer um dos seus itens (adicionar,
+  /// marcar, mover, apagar...). Reavalia quando listas ou itens mudam.
   Stream<List<ShoppingList>> watchLists() {
-    final query = _db.select(_db.localLists)
-      ..where((l) => l.deletedAt.isNull())
-      ..orderBy([(l) => OrderingTerm.asc(l.createdAt)]);
-    return query.watch().map((rows) => rows.map(ShoppingList.fromLocal).toList());
+    return _db
+        .customSelect('SELECT 1', readsFrom: {_db.localLists, _db.localItems})
+        .watch()
+        .asyncMap((_) => _listsWithActivity());
+  }
+
+  Future<List<ShoppingList>> _listsWithActivity() async {
+    final rows = await (_db.select(_db.localLists)
+          ..where((l) => l.deletedAt.isNull())
+          ..orderBy([(l) => OrderingTerm.asc(l.createdAt)]))
+        .get();
+
+    final items = _db.localItems;
+    final itemRows = await (_db.selectOnly(items)
+          ..addColumns([items.listId, items.updatedAt, items.updatedBy, items.createdBy]))
+        .get();
+    // Item mais recente de cada lista. Quem não tem `updated_by` (item de antes
+    // da migração 0004) conta como obra de quem o criou.
+    final latest = <String, ({DateTime at, String? by})>{};
+    for (final r in itemRows) {
+      final listId = r.read(items.listId)!;
+      final at = r.read(items.updatedAt)!;
+      final current = latest[listId];
+      if (current == null || at.isAfter(current.at)) {
+        latest[listId] = (at: at, by: r.read(items.updatedBy) ?? r.read(items.createdBy));
+      }
+    }
+
+    return [
+      for (final l in rows)
+        () {
+          var at = l.updatedAt;
+          var by = l.updatedBy ?? l.ownerId;
+          final item = latest[l.id];
+          if (item != null && item.at.isAfter(at)) {
+            at = item.at;
+            by = item.by ?? by;
+          }
+          return ShoppingList.fromLocal(l, lastUpdatedAt: at, lastUpdatedBy: by);
+        }(),
+    ];
   }
 
   /// Uma lista só: emite a versão atual a cada mudança, e `null` quando ela
@@ -130,6 +170,7 @@ class ListsService {
               category: Value(category.value),
               createdAt: now,
               updatedAt: now,
+              updatedBy: Value(ownerId),
             ),
           );
       await _db.enqueue(
@@ -159,6 +200,7 @@ class ListsService {
           name: Value(cleanName),
           category: Value(category.value),
           updatedAt: Value(_now().toUtc()),
+          updatedBy: Value(_currentUserId()),
         ),
       );
       await _db.enqueue(
@@ -174,7 +216,11 @@ class ListsService {
     final now = _now().toUtc();
     return _db.transaction(() async {
       await (_db.update(_db.localLists)..where((l) => l.id.equals(id))).write(
-        LocalListsCompanion(deletedAt: Value(now), updatedAt: Value(now)),
+        LocalListsCompanion(
+          deletedAt: Value(now),
+          updatedAt: Value(now),
+          updatedBy: Value(_currentUserId()),
+        ),
       );
       await _db.enqueue(
         table: 'lists',

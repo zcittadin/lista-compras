@@ -45,6 +45,9 @@ class MembersService {
 
   final _names = <String, String>{};
 
+  /// O nome, se já foi buscado antes (sem rede, sem espera).
+  String? cachedName(String userId) => _names[userId];
+
   /// Nome (ou e-mail) de um usuário com quem se divide alguma lista, para o
   /// aviso "Fulano compartilhou...". Fica em memória depois da primeira busca.
   /// Sem conexão ou sem permissão, devolve `null` (o aviso aparece sem o nome).

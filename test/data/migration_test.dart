@@ -5,6 +5,7 @@ import 'package:lista_compras/data/app_database.dart';
 
 import '../generated_migrations/schema.dart';
 import '../generated_migrations/schema_v1.dart' as v1;
+import '../generated_migrations/schema_v2.dart' as v2;
 
 /// Migrações do banco local. Os "retratos" de cada versão ficam em
 /// `drift_schemas/` e os auxiliares em `test/generated_migrations/` (gerados por
@@ -15,21 +16,28 @@ void main() {
 
   setUpAll(() => verifier = SchemaVerifier(GeneratedHelper()));
 
-  test('instalação nova: o esquema criado é o da versão 2', () async {
+  test('instalação nova: o esquema criado é o da versão 3', () async {
+    final schema = await verifier.schemaAt(3);
+    final db = AppDatabase(schema.newConnection());
+    await verifier.migrateAndValidate(db, 3);
+    await db.close();
+  });
+
+  test('atualização 2 → 3: o esquema resultante é idêntico ao de uma instalação nova', () async {
     final schema = await verifier.schemaAt(2);
     final db = AppDatabase(schema.newConnection());
-    await verifier.migrateAndValidate(db, 2);
+    await verifier.migrateAndValidate(db, 3);
     await db.close();
   });
 
-  test('atualização 1 → 2: o esquema resultante é idêntico ao de uma instalação nova', () async {
+  test('atualização 1 → 3 direto também chega ao esquema atual', () async {
     final schema = await verifier.schemaAt(1);
     final db = AppDatabase(schema.newConnection());
-    await verifier.migrateAndValidate(db, 2);
+    await verifier.migrateAndValidate(db, 3);
     await db.close();
   });
 
-  group('atualização 1 → 2 com dados (o celular de vocês)', () {
+  group('atualização 1 → 3 com dados (o celular de vocês)', () {
     final base = DateTime.utc(2026, 10, 12, 10);
 
     Future<void> seedV1(QueryExecutor connection) async {
@@ -71,7 +79,7 @@ void main() {
       await seedV1(schema.newConnection());
 
       final db = AppDatabase(schema.newConnection());
-      await verifier.migrateAndValidate(db, 2);
+      await verifier.migrateAndValidate(db, 3);
 
       final rows = await db.select(db.localItems).get();
       final position = {for (final r in rows) r.id: r.position};
@@ -91,7 +99,7 @@ void main() {
       await seedV1(schema.newConnection());
 
       final db = AppDatabase(schema.newConnection());
-      await verifier.migrateAndValidate(db, 2);
+      await verifier.migrateAndValidate(db, 3);
 
       final items = await db.select(db.localItems).get();
       expect(items, hasLength(6));
@@ -105,9 +113,45 @@ void main() {
     test('banco sem itens também migra', () async {
       final schema = await verifier.schemaAt(1);
       final db = AppDatabase(schema.newConnection());
-      await verifier.migrateAndValidate(db, 2);
+      await verifier.migrateAndValidate(db, 3);
       expect(await db.select(db.localItems).get(), isEmpty);
       await db.close();
     });
+  });
+
+  test('atualização 2 → 3 com dados: updated_by nasce nulo e nada se perde', () async {
+    final schema = await verifier.schemaAt(2);
+    final old = v2.DatabaseAtV2(schema.newConnection());
+    final now = DateTime.utc(2026, 10, 12, 10).toIso8601String();
+    await old.into(old.localLists).insert(v2.LocalListsCompanion.insert(
+          id: 'l1',
+          ownerId: 'u1',
+          name: 'Mercado',
+          createdAt: now,
+          updatedAt: now,
+        ));
+    await old.into(old.localItems).insert(v2.LocalItemsCompanion.insert(
+          id: 'i1',
+          listId: 'l1',
+          name: 'Arroz',
+          createdBy: const Value('u2'),
+          createdAt: now,
+          updatedAt: now,
+          position: const Value(1),
+        ));
+    await old.close();
+
+    final db = AppDatabase(schema.newConnection());
+    await verifier.migrateAndValidate(db, 3);
+
+    final list = await db.select(db.localLists).getSingle();
+    final item = await db.select(db.localItems).getSingle();
+    expect(list.name, 'Mercado');
+    expect(list.updatedBy, null);
+    expect(item.name, 'Arroz');
+    expect(item.createdBy, 'u2');
+    expect(item.position, 1.0);
+    expect(item.updatedBy, null);
+    await db.close();
   });
 }

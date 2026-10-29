@@ -82,6 +82,7 @@ class ItemsService {
               createdBy: Value(_currentUserId()),
               createdAt: now,
               updatedAt: now,
+              updatedBy: Value(_currentUserId()),
               position: Value(position),
             ),
           );
@@ -156,7 +157,11 @@ class ItemsService {
 
   Future<void> _setPosition(String itemId, double position) async {
     await (_db.update(_db.localItems)..where((i) => i.id.equals(itemId))).write(
-      LocalItemsCompanion(position: Value(position), updatedAt: Value(_now().toUtc())),
+      LocalItemsCompanion(
+        position: Value(position),
+        updatedAt: Value(_now().toUtc()),
+        updatedBy: Value(_currentUserId()),
+      ),
     );
     await _db.enqueue(
       table: 'items',
@@ -185,6 +190,7 @@ class ItemsService {
           unit: Value(cleanUnit),
           note: Value(cleanNote),
           updatedAt: Value(_now().toUtc()),
+          updatedBy: Value(_currentUserId()),
         ),
       );
       await _db.enqueue(
@@ -204,7 +210,11 @@ class ItemsService {
   Future<void> setChecked(String id, bool checked) {
     return _db.transaction(() async {
       await (_db.update(_db.localItems)..where((i) => i.id.equals(id))).write(
-        LocalItemsCompanion(checked: Value(checked), updatedAt: Value(_now().toUtc())),
+        LocalItemsCompanion(
+          checked: Value(checked),
+          updatedAt: Value(_now().toUtc()),
+          updatedBy: Value(_currentUserId()),
+        ),
       );
       await _db.enqueue(
         table: 'items',
@@ -219,7 +229,11 @@ class ItemsService {
     final now = _now().toUtc();
     return _db.transaction(() async {
       await (_db.update(_db.localItems)..where((i) => i.id.equals(id))).write(
-        LocalItemsCompanion(deletedAt: Value(now), updatedAt: Value(now)),
+        LocalItemsCompanion(
+          deletedAt: Value(now),
+          updatedAt: Value(now),
+          updatedBy: Value(_currentUserId()),
+        ),
       );
       await _db.enqueue(
         table: 'items',

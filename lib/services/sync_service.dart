@@ -644,6 +644,8 @@ class SyncService with WidgetsBindingObserver {
         createdAt: Value(_ts(m['created_at'])),
         updatedAt: Value(_ts(m['updated_at'])),
         deletedAt: Value(_tsOrNull(m['deleted_at'])),
+        // Ausente se o servidor ainda não tem a migração 0004.
+        updatedBy: Value(m['updated_by'] as String?),
       );
 
   static LocalItemsCompanion _itemRow(Map<String, dynamic> m) => LocalItemsCompanion(
@@ -660,6 +662,8 @@ class SyncService with WidgetsBindingObserver {
         deletedAt: Value(_tsOrNull(m['deleted_at'])),
         // Ausente se o servidor ainda não tem a migração 0003.
         position: Value((m['position'] as num?)?.toDouble()),
+        // Ausente se o servidor ainda não tem a migração 0004.
+        updatedBy: Value(m['updated_by'] as String?),
       );
 
   static LocalProductsCompanion _productRow(Map<String, dynamic> m) => LocalProductsCompanion(
