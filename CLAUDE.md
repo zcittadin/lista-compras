@@ -38,6 +38,12 @@ importação/exportação do catálogo e "última atualização" nas listas (fei
 sem aprovação: sincronização com o app fechado (WorkManager), participantes disponíveis
 offline, iOS.
 
+**Próxima etapa combinada (2026-11-10, ainda não iniciada):** trocar o Supabase por um
+backend próprio em FastAPI + Postgres. O plano está em `docs/PLANO_BACKEND_PROPRIO.md`
+(5 fases, mantendo a RLS no banco e a interface `RemoteGateway` no app). Falta o Zander
+decidir onde hospedar; começar pela fase 1 só quando ele pedir. Até lá, tudo que está
+abaixo sobre o Supabase continua valendo.
+
 ## Reordenar itens arrastando (implementada em 2026-10-18; testada no celular em 2026-10-28)
 
 Decidida com o Zander em 2026-10-12 e implementada em 2026-10-18. Inspiração:
